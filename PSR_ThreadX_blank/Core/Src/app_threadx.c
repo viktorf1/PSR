@@ -48,6 +48,8 @@
 uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 
 TX_THREAD led_thread;
+
+bool is_sender = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/

@@ -31,6 +31,7 @@ extern "C" {
 
 #include "stm32h7xx_nucleo.h"
 #include <stdio.h>
+#include <stdbool.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
