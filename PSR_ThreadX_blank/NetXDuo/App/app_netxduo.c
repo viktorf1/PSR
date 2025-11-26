@@ -36,9 +36,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define HTTP_SERVER_PORT			80
+#define HTTP_SERVER_PORT						80
 #define IP_LINK_CHECK_THREAD_STACK_SIZE			1024
 #define IP_LINK_CHECK_THREAD_PRIORITY			12
+#define SENDER_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 1)
+#define RECEIVER_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 2)
+#define PC_IP_ADDRESS 							IP_ADDRESS(192, 168, 1, 10)
+#define PC_PORT 								5001
+#define BOARD_PORT 								5000
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,6 +68,8 @@ extern FX_MEDIA        sdio_disk;
 NX_WEB_HTTP_SERVER httpServer;
 CHAR *httpServerStack;
 
+UINT prev_switch_state = GPIO_PIN_SET;
+
 static NX_WEB_HTTP_SERVER_MIME_MAP app_mime_maps[] =
 {
   {"css", "text/css"},
@@ -80,6 +88,9 @@ UINT ftpLogin(struct NX_FTP_SERVER_STRUCT *ftp_server_ptr, ULONG client_ip_addre
 UINT ftpLogout(struct NX_FTP_SERVER_STRUCT *ftp_server_ptr, ULONG client_ip_address, UINT client_port, CHAR *name, CHAR *password, CHAR *extra_info);
 UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr, UINT request_type, CHAR *resource, NX_PACKET *packet_ptr);
 VOID ipLinkCheckEntry(ULONG ini);
+static void check_switch_and_send(void);
+static void process_led_command(UCHAR *data, UINT length);
+static void send_packet(NX_PACKET* outcoming_packet, ULONG ipAddress, ULONG port);
 /* USER CODE END PFP */
 
 /**
@@ -256,10 +267,34 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 	ULONG bytes_read;
 	UCHAR data_buffer[128];
 	NX_PACKET *incoming_packet;
-	NX_PACKET *outcoming_packet;
 	ULONG ipAddress;
 	UINT port;
 
+	// create UDP socket
+	ret = nx_udp_socket_create(&NetXDuoEthIpInstance, &UDPSocket, "UDP Server Socket", NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 2);
+	if (ret != NX_SUCCESS)
+	{
+		printf("UDP server create error. %02X\r\n", ret);
+		while(1)
+		{
+			tx_thread_sleep(100);
+		}
+	}
+
+	// bind the socket to the port 5000 - this is the nucleo board local port
+	ret = nx_udp_socket_bind(&UDPSocket, 5000, TX_WAIT_FOREVER);
+	if (ret != NX_SUCCESS)
+	{
+		printf("Binding error. %02X\r\n", ret);
+		while(1)
+		{
+			tx_thread_sleep(100);
+		}
+	}
+	else
+	{
+		printf("UDP Server listening on PORT 5000.\r\n");
+	}
 	// waiting for SD card mount and then start the FTP server
 	ret = tx_semaphore_get(&sdMountDone, TX_WAIT_FOREVER);
 	if (ret == TX_SUCCESS)
@@ -271,14 +306,14 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 
 		if (ret != TX_SUCCESS)
 		{
-		  printf("FTP server create error. %02X\n", ret);
+		  printf("FTP server create error. %02X\r\n", ret);
 
 		}
 
 		// start the ftp server
 		if (nx_ftp_server_start(&ftpServer) == NX_SUCCESS)
 		{
-			printf("FTP server started.\n");
+			printf("FTP server started.\r\n");
 		}
 
 		// create webserver
@@ -288,49 +323,23 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 
 		if (ret != NX_SUCCESS)
 		{
-			printf("HTTP server create error. %02X\n", ret);
+			printf("HTTP server create error. %02X\r\n", ret);
 		}
 
 		ret = nx_web_http_server_mime_maps_additional_set(&httpServer,&app_mime_maps[0], 6);
 
 		if (nx_web_http_server_start(&httpServer) == NX_SUCCESS)
 		{
-			printf("HTTP server started.\n");
+			printf("HTTP server started.\r\n");
 		}
-	}
-
-	// create UDP socket
-	ret = nx_udp_socket_create(&NetXDuoEthIpInstance, &UDPSocket, "UDP Server Socket", NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 2);
-	if (ret != NX_SUCCESS)
-	{
-		printf("UDP server create error. %02X\n", ret);
-		while(1)
-		{
-			tx_thread_sleep(100);
-		}
-	}
-
-	// bind the socket to the port 5000 - this is the nucleo board local port
-	ret = nx_udp_socket_bind(&UDPSocket, 5000, TX_WAIT_FOREVER);
-	if (ret != NX_SUCCESS)
-	{
-		printf("Binding error. %02X\n", ret);
-		while(1)
-		{
-			tx_thread_sleep(100);
-		}
-	}
-	else
-	{
-		printf("UDP Server listening on PORT 5000.\n");
 	}
 
 	// start the loop
 	while (1)
 	{
 		// wait for one second or until the UDP is received
+		check_switch_and_send();
 		ret = nx_udp_socket_receive(&UDPSocket, &incoming_packet, 100);
-
 		if (ret == NX_SUCCESS)
 		{
 			// if packet has been successfully received, then retrieved the data into local buffer
@@ -338,56 +347,38 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 
 			if (ret == NX_SUCCESS)
 			{
-				// get the source IP address and port
-				nx_udp_source_extract(incoming_packet, &ipAddress, &port);
-				printf("Socket received %d bytes from %d.%d.%d.%d:%d\n",
-						(int) bytes_read, (int) (ipAddress >> 24) & 0xFF, (int) (ipAddress >> 16) & 0xFF,
-						(int) (ipAddress >> 8) & 0xFF, (int) ipAddress & 0xFF, port);
-
-				// allocate packet for reply
-				ret = nx_packet_allocate(&NxAppPool, &outcoming_packet, NX_UDP_PACKET, 100);
-				if (ret != NX_SUCCESS)
+				if (bytes_read < sizeof(data_buffer))
 				{
-					// if error has been detected, print the error code and jump to the beginning of the while loop commands
-					printf("Packet allocate error %02x\n", ret);
-					continue;
-				}
-
-				// append data to the packet
-				ret = nx_packet_data_append(outcoming_packet, data_buffer,
-						bytes_read, &NxAppPool, 100);
-
-				if (ret != NX_SUCCESS)
-				{
-					// if error has been detected, print the error code and jump to the beginning of the while loop commands
-					printf("Packet append error %02x\n", ret);
-					continue;
-				}
-
-				// send the data to the IP address and port which has been extracted from the incoming packet
-				ret = nx_udp_socket_send(&UDPSocket, outcoming_packet,	ipAddress, port);
-				if (ret != NX_SUCCESS)
-				{
-					// in the case of socket send failure we MUST release the outcoming packet!
-					printf("UDP send error %02x\n", ret);
-					nx_packet_release(outcoming_packet);
+					data_buffer[bytes_read] = '\0';
 				}
 				else
 				{
-					// in the case of socket success we MUST NOT release the outcoming packet!
-					printf("UDP send successfully\n");
+					data_buffer[sizeof(data_buffer) - 1] = '\0';
 				}
-			}
+				// get the source IP address and port
+				nx_udp_source_extract(incoming_packet, &ipAddress, &port);
+				printf("Socket received %d bytes from %d.%d.%d.%d:%d\r\n",
+						(int) bytes_read,
+						(int) (ipAddress >> 24) & 0xFF,
+						(int) (ipAddress >> 16) & 0xFF,
+						(int) (ipAddress >> 8) & 0xFF,
+						(int) ipAddress & 0xFF,
+						port);
 
+				process_led_command(data_buffer, bytes_read);
+				// echo the sent packet (debug purpose only
+//				send_packet(incoming_packet, ipAddress, port);
+			}
 			// we MUST always release the incoming packet
 			nx_packet_release(incoming_packet);
-			printf("Packets available %d\n\n", (int) NxAppPool.nx_packet_pool_available);
+			printf("Packets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
 		}
 	}
 
   /* USER CODE END Nx_App_Thread_Entry 0 */
 
 }
+
 /* USER CODE BEGIN 1 */
 UINT ftpLogin(struct NX_FTP_SERVER_STRUCT *ftp_server_ptr, ULONG client_ip_address, UINT client_port, CHAR *name, CHAR *password, CHAR *extra_info)
 {
@@ -458,6 +449,102 @@ VOID ipLinkCheckEntry(ULONG ini)
 
 
 		tx_thread_sleep(100);
+	}
+}
+
+static void send_packet(NX_PACKET* outcoming_packet, ULONG ipAddress, ULONG port){
+	UINT ret;
+
+	// send the data to the IP address and port which has been extracted from the incoming packet
+	ret = nx_udp_socket_send(&UDPSocket, outcoming_packet,	ipAddress, port);
+	if (ret != NX_SUCCESS)
+	{
+		// in the case of socket send failure we MUST release the outcoming packet!
+		printf("UDP send error %02x\r\n", ret);
+		nx_packet_release(outcoming_packet);
+	}
+	else
+	{
+		// in the case of socket success we MUST NOT release the outcoming packet!
+		printf("UDP send successfully\r\n");
+	}
+}
+
+static void check_switch_and_send(void)
+{
+	UINT current_switch_state;
+
+	current_switch_state = HAL_GPIO_ReadPin(GPIOB, SW1_Pin);
+	// Check if state has changed
+	if (current_switch_state != prev_switch_state) {
+		prev_switch_state = current_switch_state;
+		printf("Switch state: %u", current_switch_state);
+		UINT ret;
+		NX_PACKET *packet;
+		UCHAR message[16];
+		UINT message_len;
+
+		if (current_switch_state == GPIO_PIN_RESET){
+			message_len = sprintf((char*)message, "SW1=1");
+			printf("Switch pressed - sending: %s\r\n", message);
+		}
+		else
+		{
+			message_len = sprintf((char*)message, "SW1=0");
+			printf("Switch released - sending: %s\r\n", message);
+		}
+
+		// Allocate packet
+		ret = nx_packet_allocate(&NxAppPool, &packet, NX_UDP_PACKET, 100);
+		if (ret != NX_SUCCESS)
+		{
+			printf("Packet allocate error: %02X\n", ret);
+			return;
+		}
+
+		// Append data to packet
+		ret = nx_packet_data_append(packet, message, message_len, &NxAppPool, 100);
+		if (ret != NX_SUCCESS)
+		{
+			printf("Packet append error: %02X\n", ret);
+			nx_packet_release(packet);
+		}
+			// Send to PC (or other board)
+		send_packet(packet, PC_IP_ADDRESS, PC_PORT);
+
+	}
+}
+
+
+static void process_led_command(UCHAR *data, UINT length) {
+
+	// Check for LED1 Green (adjust GPIO as needed for your board)
+	if (strncmp((char*)data, "LED1G=1", 7) == 0)
+	{
+		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_RESET);
+		printf("LED1 Green ON\r\n");
+	}
+	else if (strncmp((char*)data, "LED1G=0", 7) == 0)
+	{
+		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_SET);
+		printf("LED1 Green OFF\r\n");
+	}
+	// Check for LED2 (if available)
+	else if (strncmp((char*)data, "LED2R=1", 7) == 0)
+	{
+		HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_RESET);
+		printf("LED2 Red ON\r\n");
+	}
+	else if (strncmp((char*)data, "LED2R=0", 7) == 0)
+	{
+		HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_SET);
+		printf("LED2 Red OFF\r\n");
+	}
+
+
+	else
+	{
+		printf("Unknown command: %s\r\n", data);
 	}
 }
 /* USER CODE END 1 */
