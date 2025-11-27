@@ -53,17 +53,21 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TX_THREAD      NxAppThread;
-NX_PACKET_POOL NxAppPool;
-NX_IP          NetXDuoEthIpInstance;
+TX_THREAD      			NxAppThread;
+NX_PACKET_POOL 			NxAppPool;
+NX_IP          			NetXDuoEthIpInstance;
 /* USER CODE BEGIN PV */
-TX_THREAD ipLinkCheckThread;
-NX_UDP_SOCKET UDPSocket;
-NX_FTP_SERVER ftpServer;
-CHAR *ftpServerStack;
+TX_THREAD 				ipLinkCheckThread;
+NX_UDP_SOCKET 			UDPSocket;
+NX_FTP_SERVER 			ftpServer;
+CHAR 					*ftpServerStack;
 
-extern TX_SEMAPHORE sdMountDone;
-extern FX_MEDIA        sdio_disk;
+static UCHAR 			data_buffer[256];
+
+extern TX_SEMAPHORE 	sdMountDone;
+extern FX_MEDIA        	sdio_disk;
+
+extern bool 			is_leader;
 
 NX_WEB_HTTP_SERVER httpServer;
 CHAR *httpServerStack;
@@ -88,9 +92,11 @@ UINT ftpLogin(struct NX_FTP_SERVER_STRUCT *ftp_server_ptr, ULONG client_ip_addre
 UINT ftpLogout(struct NX_FTP_SERVER_STRUCT *ftp_server_ptr, ULONG client_ip_address, UINT client_port, CHAR *name, CHAR *password, CHAR *extra_info);
 UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr, UINT request_type, CHAR *resource, NX_PACKET *packet_ptr);
 VOID ipLinkCheckEntry(ULONG ini);
-static void check_switch_and_send(void);
-static void process_led_command(UCHAR *data, UINT length);
-static void send_packet(NX_PACKET* outcoming_packet, ULONG ipAddress, ULONG port);
+static VOID check_switch_and_send(VOID);
+static VOID process_udp_command(UCHAR *data, UINT length);
+static VOID send_packet(ULONG ipAddress, ULONG port, UCHAR* message, UINT message_len);
+static VOID process_leader_command(UCHAR *data, UINT length);
+static VOID handle_udp_receive(NX_UDP_SOCKET* socket);
 /* USER CODE END PFP */
 
 /**
@@ -204,7 +210,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   }
 
    /* Allocate the memory for main thread   */
-  if (tx_byte_allocate(byte_pool, (VOID **) &pointer, NX_APP_THREAD_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+  if (tx_byte_allocate(byte_pool, (VOID **) &pointer, NX_APP_THREAD_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS) // possibly switch to IP_LINK_CHECK_THREAD_STACK_SIZE
   {
     return TX_POOL_ERROR;
   }
@@ -264,13 +270,9 @@ static VOID nx_app_thread_entry (ULONG thread_input)
   /* USER CODE BEGIN Nx_App_Thread_Entry 0 */
 
 	UINT ret;
-	ULONG bytes_read;
 	UCHAR data_buffer[128];
 	NX_PACKET *incoming_packet;
-	ULONG ipAddress;
-	UINT port;
-
-	// create UDP socket
+	/* CREATE UDP SOCKET */
 	ret = nx_udp_socket_create(&NetXDuoEthIpInstance, &UDPSocket, "UDP Server Socket", NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 2);
 	if (ret != NX_SUCCESS)
 	{
@@ -295,6 +297,12 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 	{
 		printf("UDP Server listening on PORT 5000.\r\n");
 	}
+	/* DETERMINE LEADER */
+//	while (1){
+//
+//	}
+
+	/* CREATE FTP AND HTTP SERVERS */
 	// waiting for SD card mount and then start the FTP server
 	ret = tx_semaphore_get(&sdMountDone, TX_WAIT_FOREVER);
 	if (ret == TX_SUCCESS)
@@ -339,40 +347,7 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 	{
 		// wait for one second or until the UDP is received
 		check_switch_and_send();
-		ret = nx_udp_socket_receive(&UDPSocket, &incoming_packet, 100);
-		if (ret == NX_SUCCESS)
-		{
-			// if packet has been successfully received, then retrieved the data into local buffer
-			ret = nx_packet_data_retrieve(incoming_packet, data_buffer, &bytes_read);
-
-			if (ret == NX_SUCCESS)
-			{
-				if (bytes_read < sizeof(data_buffer))
-				{
-					data_buffer[bytes_read] = '\0';
-				}
-				else
-				{
-					data_buffer[sizeof(data_buffer) - 1] = '\0';
-				}
-				// get the source IP address and port
-				nx_udp_source_extract(incoming_packet, &ipAddress, &port);
-				printf("Socket received %d bytes from %d.%d.%d.%d:%d\r\n",
-						(int) bytes_read,
-						(int) (ipAddress >> 24) & 0xFF,
-						(int) (ipAddress >> 16) & 0xFF,
-						(int) (ipAddress >> 8) & 0xFF,
-						(int) ipAddress & 0xFF,
-						port);
-
-				process_led_command(data_buffer, bytes_read);
-				// echo the sent packet (debug purpose only
-//				send_packet(incoming_packet, ipAddress, port);
-			}
-			// we MUST always release the incoming packet
-			nx_packet_release(incoming_packet);
-			printf("Packets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
-		}
+		handle_udp_receive(&UDPSocket);
 	}
 
   /* USER CODE END Nx_App_Thread_Entry 0 */
@@ -452,9 +427,26 @@ VOID ipLinkCheckEntry(ULONG ini)
 	}
 }
 
-static void send_packet(NX_PACKET* outcoming_packet, ULONG ipAddress, ULONG port){
+static VOID send_packet(ULONG ipAddress, ULONG port, UCHAR* message, UINT message_len){
 	UINT ret;
+	NX_PACKET *outcoming_packet;
 
+	// Allocate packet
+	ret = nx_packet_allocate(&NxAppPool, &outcoming_packet, NX_UDP_PACKET, 100);
+	if (ret != NX_SUCCESS)
+	{
+		printf("Packet allocate error: %02X\n", ret);
+		return;
+	}
+
+	// Append data to packet
+	ret = nx_packet_data_append(outcoming_packet, message, message_len, &NxAppPool, 100);
+	if (ret != NX_SUCCESS)
+	{
+		printf("Packet append error: %02X\n", ret);
+		nx_packet_release(outcoming_packet);
+		return;
+	}
 	// send the data to the IP address and port which has been extracted from the incoming packet
 	ret = nx_udp_socket_send(&UDPSocket, outcoming_packet,	ipAddress, port);
 	if (ret != NX_SUCCESS)
@@ -469,8 +461,45 @@ static void send_packet(NX_PACKET* outcoming_packet, ULONG ipAddress, ULONG port
 		printf("UDP send successfully\r\n");
 	}
 }
+static VOID handle_udp_receive(NX_UDP_SOCKET* socket)
+{
+	NX_PACKET *pkt;
+	UINT ret;
+	ULONG ip;
+	UINT port;
+	ULONG bytes_read = 0;
 
-static void check_switch_and_send(void)
+	ret = nx_udp_socket_receive(socket, &pkt, 100);
+	if (ret != NX_SUCCESS)
+		return;
+
+	ret = nx_packet_data_retrieve(pkt, data_buffer, &bytes_read);
+	if (ret == NX_SUCCESS)
+	{
+		if (bytes_read < sizeof(data_buffer))
+			data_buffer[bytes_read] = '\0';
+		else
+			data_buffer[sizeof(data_buffer) - 1] = '\0';
+
+		nx_udp_source_extract(pkt, &ip, &port);
+
+		printf("Socket received %lu bytes from %lu.%lu.%lu.%lu:%u\r\n",
+			   bytes_read,
+			   (ip >> 24) & 0xFF,
+			   (ip >> 16) & 0xFF,
+			   (ip >> 8) & 0xFF,
+			   ip & 0xFF,
+			   port);
+
+		process_udp_command(data_buffer, bytes_read);
+		// send_packet(pkt, ip, port); // optional echo
+	}
+
+	nx_packet_release(pkt);
+	printf("Packets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
+}
+
+static VOID check_switch_and_send(VOID)
 {
 	UINT current_switch_state;
 
@@ -479,8 +508,6 @@ static void check_switch_and_send(void)
 	if (current_switch_state != prev_switch_state) {
 		prev_switch_state = current_switch_state;
 		printf("Switch state: %u", current_switch_state);
-		UINT ret;
-		NX_PACKET *packet;
 		UCHAR message[16];
 		UINT message_len;
 
@@ -494,31 +521,15 @@ static void check_switch_and_send(void)
 			printf("Switch released - sending: %s\r\n", message);
 		}
 
-		// Allocate packet
-		ret = nx_packet_allocate(&NxAppPool, &packet, NX_UDP_PACKET, 100);
-		if (ret != NX_SUCCESS)
-		{
-			printf("Packet allocate error: %02X\n", ret);
-			return;
-		}
-
-		// Append data to packet
-		ret = nx_packet_data_append(packet, message, message_len, &NxAppPool, 100);
-		if (ret != NX_SUCCESS)
-		{
-			printf("Packet append error: %02X\n", ret);
-			nx_packet_release(packet);
-		}
-			// Send to PC (or other board)
-		send_packet(packet, PC_IP_ADDRESS, PC_PORT);
-
+		// Send to PC (or other board)
+		send_packet(PC_IP_ADDRESS, PC_PORT, message, message_len);
 	}
 }
 
 
-static void process_led_command(UCHAR *data, UINT length) {
+static VOID process_udp_command(UCHAR *data, UINT length) {
 
-	// Check for LED1 Green (adjust GPIO as needed for your board)
+	/* CHECK LED */
 	if (strncmp((char*)data, "LED1G=1", 7) == 0)
 	{
 		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_RESET);
@@ -541,7 +552,18 @@ static void process_led_command(UCHAR *data, UINT length) {
 		printf("LED2 Red OFF\r\n");
 	}
 
+	else
+	{
+		printf("Unknown command: %s\r\n", data);
+	}
+}
 
+static VOID process_leader_command(UCHAR *data, UINT length){
+	if (strncmp((char*)data, "LDR", 3) == 0)
+	{
+		/* PUT INTO RECEIVER MODE */
+		printf("Leader packet received, becoming receiver\r\n");
+	}
 	else
 	{
 		printf("Unknown command: %s\r\n", data);
