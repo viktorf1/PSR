@@ -562,7 +562,21 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 		current_role = RECEIVER;
 		printf("Leader packet received, becoming receiver\r\n");
 	}
+	else if (strncmp((char*)data, "ENC=", 4) == 0)
+	{
+		char *p = (char*) data + 4;
+		char *end;
+		uint32_t val = strtoul(p, &end, 4);
 
+		if (end == p) {
+		    printf("Incorrect encoder message formatting");
+		}
+		if (*end != '\0') {
+		    printf("Incorrect encoder message formatting");
+		}
+		if (val >= LED1_ON) val = LED1_ON - 1;
+		queue_push(val);
+	}
 	else
 	{
 		printf("Unknown command: %s\r\n", data);

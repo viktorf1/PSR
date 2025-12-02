@@ -56,6 +56,7 @@ leader_state_t current_role = NOT_DETERMINED;
 
 TX_QUEUE q;
 uint32_t q_data[QUEUE_CAP] = {0};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/

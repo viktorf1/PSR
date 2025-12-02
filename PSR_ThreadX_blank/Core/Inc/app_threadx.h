@@ -35,14 +35,10 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 typedef enum {
-	LED1_ON,
-	LED1_OFF,
-	LED2_ON,
-	LED2_OFF,
-	MOTOR_TICK_RIGHT,
-	MOTOR_TICK_LEFT,
-	SEND_LEADER,
-	GOT_LEADER
+	LED1_ON = 1000,
+	LED1_OFF = 1001,
+	LED2_ON = 1002,
+	LED2_OFF = 1003
 } action_t;
 
 typedef enum {
