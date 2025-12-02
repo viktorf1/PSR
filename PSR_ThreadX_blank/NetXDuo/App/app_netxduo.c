@@ -27,6 +27,7 @@
 #include "nxd_ftp_server.h"
 #include "nx_web_http_server.h"
 #include "main.h"
+#include "app_threadx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,8 +68,7 @@ static UCHAR 			data_buffer[256];
 extern TX_SEMAPHORE 	sdMountDone;
 extern FX_MEDIA        	sdio_disk;
 
-extern bool 			is_leader;
-
+extern leader_state_t 	current_role;
 NX_WEB_HTTP_SERVER httpServer;
 CHAR *httpServerStack;
 
@@ -95,7 +95,6 @@ VOID ipLinkCheckEntry(ULONG ini);
 static VOID check_switch_and_send(VOID);
 static VOID process_udp_command(UCHAR *data, UINT length);
 static VOID send_packet(ULONG ipAddress, ULONG port, UCHAR* message, UINT message_len);
-static VOID process_leader_command(UCHAR *data, UINT length);
 static VOID handle_udp_receive(NX_UDP_SOCKET* socket);
 /* USER CODE END PFP */
 
@@ -270,8 +269,6 @@ static VOID nx_app_thread_entry (ULONG thread_input)
   /* USER CODE BEGIN Nx_App_Thread_Entry 0 */
 
 	UINT ret;
-	UCHAR data_buffer[128];
-	NX_PACKET *incoming_packet;
 	/* CREATE UDP SOCKET */
 	ret = nx_udp_socket_create(&NetXDuoEthIpInstance, &UDPSocket, "UDP Server Socket", NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 2);
 	if (ret != NX_SUCCESS)
@@ -298,9 +295,10 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 		printf("UDP Server listening on PORT 5000.\r\n");
 	}
 	/* DETERMINE LEADER */
-//	while (1){
-//
-//	}
+	while (current_role == NOT_DETERMINED){
+		check_switch_and_send();
+		handle_udp_receive(&UDPSocket);
+	}
 
 	/* CREATE FTP AND HTTP SERVERS */
 	// waiting for SD card mount and then start the FTP server
@@ -461,8 +459,7 @@ static VOID send_packet(ULONG ipAddress, ULONG port, UCHAR* message, UINT messag
 		printf("UDP send successfully\r\n");
 	}
 }
-static VOID handle_udp_receive(NX_UDP_SOCKET* socket)
-{
+static VOID handle_udp_receive(NX_UDP_SOCKET* socket){
 	NX_PACKET *pkt;
 	UINT ret;
 	ULONG ip;
@@ -499,8 +496,7 @@ static VOID handle_udp_receive(NX_UDP_SOCKET* socket)
 	printf("Packets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
 }
 
-static VOID check_switch_and_send(VOID)
-{
+static VOID check_switch_and_send(VOID){
 	UINT current_switch_state;
 
 	current_switch_state = HAL_GPIO_ReadPin(GPIOB, SW1_Pin);
@@ -510,16 +506,22 @@ static VOID check_switch_and_send(VOID)
 		printf("Switch state: %u", current_switch_state);
 		UCHAR message[16];
 		UINT message_len;
-
-		if (current_switch_state == GPIO_PIN_RESET){
-			message_len = sprintf((char*)message, "SW1=1");
-			printf("Switch pressed - sending: %s\r\n", message);
-		}
-		else
-		{
-			message_len = sprintf((char*)message, "SW1=0");
-			printf("Switch released - sending: %s\r\n", message);
-		}
+		if (current_role != NOT_DETERMINED){
+			if (current_switch_state == GPIO_PIN_RESET){
+				message_len = sprintf((char*)message, "SW1=1");
+				printf("Switch pressed - sending: %s\r\n", message);
+			}
+			else
+			{
+				message_len = sprintf((char*)message, "SW1=0");
+				printf("Switch released - sending: %s\r\n", message);
+			}
+		} else
+			if (current_switch_state == GPIO_PIN_SET){ // only register button push after the button's release
+				current_role = LEADER;
+				message_len = sprintf((char*)message, "LDR");
+				printf("Recorded switch push while leader not yet determined, becoming LEADER r\n");
+			}
 
 		// Send to PC (or other board)
 		send_packet(PC_IP_ADDRESS, PC_PORT, message, message_len);
@@ -532,41 +534,39 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 	/* CHECK LED */
 	if (strncmp((char*)data, "LED1G=1", 7) == 0)
 	{
-		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_RESET);
+		//HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_RESET);
+		queue_push(LED1_ON);
 		printf("LED1 Green ON\r\n");
 	}
 	else if (strncmp((char*)data, "LED1G=0", 7) == 0)
 	{
-		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_SET);
+		//HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_SET);
+		queue_push(LED1_OFF);
 		printf("LED1 Green OFF\r\n");
 	}
 	// Check for LED2 (if available)
 	else if (strncmp((char*)data, "LED2R=1", 7) == 0)
 	{
-		HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_RESET);
+		queue_push(LED2_ON);
+		//HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_RESET);
 		printf("LED2 Red ON\r\n");
 	}
 	else if (strncmp((char*)data, "LED2R=0", 7) == 0)
 	{
-		HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_SET);
+		//HAL_GPIO_WritePin(LED2_R_GPIO_Port, LED2_R_Pin, GPIO_PIN_SET);
+		queue_push(LED2_OFF);
 		printf("LED2 Red OFF\r\n");
 	}
-
-	else
+	else if ((strncmp((char*)data, "LDR", 3) == 0) && (current_role == NOT_DETERMINED))
 	{
-		printf("Unknown command: %s\r\n", data);
-	}
-}
-
-static VOID process_leader_command(UCHAR *data, UINT length){
-	if (strncmp((char*)data, "LDR", 3) == 0)
-	{
-		/* PUT INTO RECEIVER MODE */
+		current_role = RECEIVER;
 		printf("Leader packet received, becoming receiver\r\n");
 	}
+
 	else
 	{
 		printf("Unknown command: %s\r\n", data);
 	}
 }
+
 /* USER CODE END 1 */
