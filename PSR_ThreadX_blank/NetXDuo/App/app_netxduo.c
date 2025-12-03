@@ -44,6 +44,11 @@
 #define BOARD2_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 2)
 #define BOARD1_PORT 							5000
 #define BOARD2_PORT 							5001
+
+/* CHANGE HERE TO SET THE OTHER BOARD ADDRESS AND PORT */
+#define OTHER_BOARD_IP_ADDRESS					BOARD2_IP_ADDRESS
+#define OTHER_BOARD_PORT						BOARD2_PORT
+
 #define PC_IP_ADDRESS 							IP_ADDRESS(192, 168, 1, 10)
 
 
@@ -528,7 +533,7 @@ static VOID check_switch_and_send(VOID){
 			}
 
 		// Send to PC (or other board)
-		send_packet(BOARD2_IP_ADDRESS, BOARD2_PORT, message, message_len);
+		send_packet(OTHER_BOARD_IP_ADDRESS, OTHER_BOARD_PORT, message, message_len);
 	}
 }
 
@@ -568,7 +573,7 @@ static VOID poll_queue_and_send(VOID) {
         memcpy(data, fmt, data_len + 1);
     }
 
-    send_packet(BOARD2_IP_ADDRESS, BOARD2_PORT, (UCHAR*) data, data_len);
+    send_packet(OTHER_BOARD_IP_ADDRESS, OTHER_BOARD_PORT, (UCHAR*) data, data_len);
 
     free(data);
 }
