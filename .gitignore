@@ -2,3 +2,14 @@ Binaries/*
 *.elf
 *.o
 *.bin
+*.ioc
+*.launch
+*.md
+*.ld
+Includes/*
+Core/*
+Drivers/*
+FileX/*
+Middlewares/*
+Debug/*
+Webfiles/*

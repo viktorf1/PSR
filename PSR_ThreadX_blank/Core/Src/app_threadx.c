@@ -36,6 +36,7 @@
 #define TRACEX_BUFFER_SIZE		64000
 #define LED_THREAD_STACK_SIZE	4096
 #define LED_THREAD_PRIORITY		10
+#define QUEUE_CAP				4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +51,11 @@ uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 TX_THREAD led_thread;
 
 bool is_sender = false;
+
+leader_state_t current_role = NOT_DETERMINED;
+
+TX_QUEUE q;
+uint32_t q_data[QUEUE_CAP] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -112,6 +118,9 @@ void MX_ThreadX_Init(void)
 }
 
 /* USER CODE BEGIN 1 */
+int queue_push(uint32_t action_id){
+	return tx_queue_send(&q, &action_id,TX_NO_WAIT);
+}
 
 void led_thread_entry(ULONG init)
 {

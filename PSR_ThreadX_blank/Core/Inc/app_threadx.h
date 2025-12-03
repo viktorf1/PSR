@@ -27,14 +27,29 @@ extern "C" {
 #endif
 /* Includes ------------------------------------------------------------------*/
 #include "tx_api.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef enum {
+	LED1_ON,
+	LED1_OFF,
+	LED2_ON,
+	LED2_OFF,
+	MOTOR_TICK_RIGHT,
+	MOTOR_TICK_LEFT,
+	SEND_LEADER,
+	GOT_LEADER
+} action_t;
+
+typedef enum {
+	LEADER,
+	RECEIVER,
+	NOT_DETERMINED
+} leader_state_t;
 
 /* USER CODE END ET */
 
@@ -63,7 +78,7 @@ extern "C" {
 UINT App_ThreadX_Init(VOID *memory_ptr);
 void MX_ThreadX_Init(void);
 /* USER CODE BEGIN EFP */
-
+int queue_push(uint32_t action_id);
 /* USER CODE END EFP */
 
 /* USER CODE BEGIN 1 */
