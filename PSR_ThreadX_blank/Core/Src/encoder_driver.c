@@ -6,6 +6,9 @@
  */
 
 #include "encoder_driver.h"
+
+#define AROUND 256
+
 TX_MUTEX encoder_mutex;
 TX_MUTEX motor_mutex;
 
@@ -60,6 +63,34 @@ UINT motor_driver_input_right(uint32_t value)
 	TIM2->CCR3 = 0;
 	TIM2->CCR4 = value;
 	ret = tx_mutex_put(&motor_mutex);
+	return ret;
+}
+
+static uint32_t min(uint32_t a, uint32_t b) {
+	if(a < b) {
+		return a;
+	}
+	else {
+		return b;
+	}
+}
+
+UINT motor_driver_controller(uint32_t target) 
+{
+	UINT ret;
+	uint32_t pos;
+	encoder_driver_input(&pos);
+
+	uint32_t l_dist = min(pos - target, pos + AROUND - target);
+	uint32_t r_dist = min(target - pos, target + AROUND - pos);
+
+	// testing version with linear control by distance from target
+	if(r_dist < l_dist) {
+		motor_driver_input_right(r_dist);
+	}
+	else if(pos > target) {
+		motor_driver_input_left(l_dist);
+	}
 	return ret;
 }
 

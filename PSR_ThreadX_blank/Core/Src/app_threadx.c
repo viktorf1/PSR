@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "main.h"
+#include "encoder_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,8 +35,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TRACEX_BUFFER_SIZE		64000
-#define LED_THREAD_STACK_SIZE	4096
-#define LED_THREAD_PRIORITY		10
+#define ENCODER_THREAD_STACK_SIZE	4096
+#define ENCODER_THREAD_PRIORITY		10
 #define QUEUE_CAP				4
 /* USER CODE END PD */
 
@@ -48,7 +49,7 @@
 /* USER CODE BEGIN PV */
 uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 
-TX_THREAD led_thread;
+TX_THREAD encoder_thread;
 
 bool is_sender = false;
 
@@ -61,7 +62,7 @@ uint32_t q_data[QUEUE_CAP] = {0};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-void led_thread_entry(ULONG init);
+void encoder_thread_entry(ULONG init);
 /* USER CODE END PFP */
 
 /**
@@ -76,16 +77,16 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   TX_BYTE_POOL *bytePool = (TX_BYTE_POOL *) memory_ptr;
   VOID *pointer;
 
-  // stack allocation for LED thread
-  ret = tx_byte_allocate(bytePool, &pointer, LED_THREAD_STACK_SIZE, TX_NO_WAIT);
+  // stack allocation for ENCODER thread
+  ret = tx_byte_allocate(bytePool, &pointer, ENCODER_THREAD_STACK_SIZE, TX_NO_WAIT);
 
   if (ret != TX_SUCCESS)
     return ret;
 
 
-  // LED thread create
-  ret = tx_thread_create(&led_thread, "LED thread", led_thread_entry, 1234,
-	  pointer, LED_THREAD_STACK_SIZE, LED_THREAD_PRIORITY, LED_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_AUTO_START);
+  // ENCODER thread create
+  ret = tx_thread_create(&encoder_thread, "ENCODER thread", encoder_thread_entry, 1234,
+	  pointer, ENCODER_THREAD_STACK_SIZE, ENCODER_THREAD_PRIORITY, ENCODER_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_AUTO_START);
 
   if (ret != TX_SUCCESS)
     return ret;
@@ -122,6 +123,7 @@ void MX_ThreadX_Init(void)
 int queue_push(uint32_t action_id){
 	return tx_queue_send(&q, &action_id,TX_NO_WAIT);
 }
+
 int queue_poll(){
 	int rcv;
 	int status = tx_queue_receive(&q, &rcv,TX_NO_WAIT);
@@ -129,13 +131,22 @@ int queue_poll(){
 	return rcv;
 }
 
-void led_thread_entry(ULONG init)
+void encoder_thread_entry(ULONG init)
 {
-	while(1)
-	{
-
-		tx_thread_sleep(20);
-	}
+  uint32_t pos = 0;
+  if(is_sender) {
+    while(1) {
+      encoder_driver_input(&pos);
+      queue_push(pos);
+      tx_thread_sleep(20);
+    }
+  }
+  else {
+    while(1) {
+      motor_driver_controller(queue_poll());
+      tx_thread_sleep(20);
+    }
+  }
 }
 
 /* USER CODE END 1 */

@@ -18,5 +18,6 @@ UINT encoder_driver_output(uint32_t position);
 UINT motor_driver_initialize();
 UINT motor_driver_input_left(uint32_t value);
 UINT motor_driver_input_right(uint32_t value);
+UINT motor_driver_controller(uint32_t target);
 
 #endif /* INC_ENCODER_DRIVER_H_ */
