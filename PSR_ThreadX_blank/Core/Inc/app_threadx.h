@@ -35,6 +35,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 typedef enum {
+	QUEUE_EMPTY = -1,
 	LED1_ON = 1000,
 	LED1_OFF = 1001,
 	LED2_ON = 1002,
@@ -75,6 +76,7 @@ UINT App_ThreadX_Init(VOID *memory_ptr);
 void MX_ThreadX_Init(void);
 /* USER CODE BEGIN EFP */
 int queue_push(uint32_t action_id);
+int queue_poll();
 /* USER CODE END EFP */
 
 /* USER CODE BEGIN 1 */

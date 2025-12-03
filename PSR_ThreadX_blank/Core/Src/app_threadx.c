@@ -122,6 +122,12 @@ void MX_ThreadX_Init(void)
 int queue_push(uint32_t action_id){
 	return tx_queue_send(&q, &action_id,TX_NO_WAIT);
 }
+int queue_poll(){
+	int rcv;
+	int status = tx_queue_receive(&q, &rcv,TX_NO_WAIT);
+	if (status ==TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
+	return rcv;
+}
 
 void led_thread_entry(ULONG init)
 {
