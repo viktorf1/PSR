@@ -56,6 +56,7 @@ leader_state_t current_role = NOT_DETERMINED;
 
 TX_QUEUE q;
 uint32_t q_data[QUEUE_CAP] = {0};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +121,12 @@ void MX_ThreadX_Init(void)
 /* USER CODE BEGIN 1 */
 int queue_push(uint32_t action_id){
 	return tx_queue_send(&q, &action_id,TX_NO_WAIT);
+}
+int queue_poll(){
+	int rcv;
+	int status = tx_queue_receive(&q, &rcv,TX_NO_WAIT);
+	if (status ==TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
+	return rcv;
 }
 
 void led_thread_entry(ULONG init)

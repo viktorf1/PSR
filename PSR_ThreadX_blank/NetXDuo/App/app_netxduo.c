@@ -40,11 +40,17 @@
 #define HTTP_SERVER_PORT						80
 #define IP_LINK_CHECK_THREAD_STACK_SIZE			1024
 #define IP_LINK_CHECK_THREAD_PRIORITY			12
-#define SENDER_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 1)
-#define RECEIVER_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 2)
+#define BOARD1_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 1)
+#define BOARD2_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 2)
+#define BOARD1_PORT 							5000
+#define BOARD2_PORT 							5001
+
+/* CHANGE HERE TO SET THE OTHER BOARD ADDRESS AND PORT */
+#define OTHER_BOARD_IP_ADDRESS					BOARD2_IP_ADDRESS
+#define OTHER_BOARD_PORT						BOARD2_PORT
+
 #define PC_IP_ADDRESS 							IP_ADDRESS(192, 168, 1, 10)
-#define PC_PORT 								5001
-#define BOARD_PORT 								5000
+
 
 /* USER CODE END PD */
 
@@ -96,6 +102,7 @@ static VOID check_switch_and_send(VOID);
 static VOID process_udp_command(UCHAR *data, UINT length);
 static VOID send_packet(ULONG ipAddress, ULONG port, UCHAR* message, UINT message_len);
 static VOID handle_udp_receive(NX_UDP_SOCKET* socket);
+static VOID poll_queue_and_send(VOID);
 /* USER CODE END PFP */
 
 /**
@@ -302,41 +309,43 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 
 	/* CREATE FTP AND HTTP SERVERS */
 	// waiting for SD card mount and then start the FTP server
-	ret = tx_semaphore_get(&sdMountDone, TX_WAIT_FOREVER);
-	if (ret == TX_SUCCESS)
-	{
-		// create the FTP server
-		ret =  nx_ftp_server_create(&ftpServer, "FTP Server Instance", &NetXDuoEthIpInstance,
-										  &sdio_disk, ftpServerStack, 2*NX_APP_THREAD_STACK_SIZE, &NxAppPool,
-										  ftpLogin, ftpLogout);
-
-		if (ret != TX_SUCCESS)
+	if (current_role == LEADER){
+		ret = tx_semaphore_get(&sdMountDone, TX_WAIT_FOREVER);
+		if (ret == TX_SUCCESS)
 		{
-		  printf("FTP server create error. %02X\r\n", ret);
+			// create the FTP server
+			ret =  nx_ftp_server_create(&ftpServer, "FTP Server Instance", &NetXDuoEthIpInstance,
+											  &sdio_disk, ftpServerStack, 2*NX_APP_THREAD_STACK_SIZE, &NxAppPool,
+											  ftpLogin, ftpLogout);
 
-		}
+			if (ret != TX_SUCCESS)
+			{
+			  printf("FTP server create error. %02X\r\n", ret);
 
-		// start the ftp server
-		if (nx_ftp_server_start(&ftpServer) == NX_SUCCESS)
-		{
-			printf("FTP server started.\r\n");
-		}
+			}
 
-		// create webserver
-		ret = nx_web_http_server_create(&httpServer, "HTTP server", &NetXDuoEthIpInstance, HTTP_SERVER_PORT,
-				&sdio_disk, (VOID *) httpServerStack, 2*NX_APP_THREAD_STACK_SIZE, &NxAppPool,
-				NULL, http_request_notify);
+			// start the ftp server
+			if (nx_ftp_server_start(&ftpServer) == NX_SUCCESS)
+			{
+				printf("FTP server started.\r\n");
+			}
 
-		if (ret != NX_SUCCESS)
-		{
-			printf("HTTP server create error. %02X\r\n", ret);
-		}
+			// create webserver
+			ret = nx_web_http_server_create(&httpServer, "HTTP server", &NetXDuoEthIpInstance, HTTP_SERVER_PORT,
+					&sdio_disk, (VOID *) httpServerStack, 2*NX_APP_THREAD_STACK_SIZE, &NxAppPool,
+					NULL, http_request_notify);
 
-		ret = nx_web_http_server_mime_maps_additional_set(&httpServer,&app_mime_maps[0], 6);
+			if (ret != NX_SUCCESS)
+			{
+				printf("HTTP server create error. %02X\r\n", ret);
+			}
 
-		if (nx_web_http_server_start(&httpServer) == NX_SUCCESS)
-		{
-			printf("HTTP server started.\r\n");
+			ret = nx_web_http_server_mime_maps_additional_set(&httpServer,&app_mime_maps[0], 6);
+
+			if (nx_web_http_server_start(&httpServer) == NX_SUCCESS)
+			{
+				printf("HTTP server started.\r\n");
+			}
 		}
 	}
 
@@ -344,7 +353,7 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 	while (1)
 	{
 		// wait for one second or until the UDP is received
-		check_switch_and_send();
+		if (current_role == LEADER) poll_queue_and_send();
 		handle_udp_receive(&UDPSocket);
 	}
 
@@ -524,8 +533,49 @@ static VOID check_switch_and_send(VOID){
 			}
 
 		// Send to PC (or other board)
-		send_packet(PC_IP_ADDRESS, PC_PORT, message, message_len);
+		send_packet(OTHER_BOARD_IP_ADDRESS, OTHER_BOARD_PORT, message, message_len);
 	}
+}
+
+static VOID poll_queue_and_send(VOID) {
+    int rcv = queue_poll();
+    if (rcv == QUEUE_EMPTY) return;
+
+    const char *fmt = NULL;
+
+    if (rcv < 1000) {
+        fmt = "ENC=%d";
+    } else {
+        switch (rcv) {
+            case LED1_ON:  fmt = "LED1G=1"; break;
+            case LED1_OFF: fmt = "LED1G=0"; break;
+            case LED2_ON:  fmt = "LED2R=1"; break;
+            case LED2_OFF: fmt = "LED2R=0"; break;
+            default: return;  // unknown code
+        }
+    }
+
+    char *data;
+    UINT data_len;
+
+    if (rcv < 1000) {
+        // need formatting
+        int needed = snprintf(NULL, 0, fmt, rcv) + 1;
+        data = malloc(needed);
+        if (!data) return;
+        snprintf(data, needed, fmt, rcv);
+        data_len = needed - 1;
+    } else {
+        // literal string from table, doesn’t need formatting
+        data_len = strlen(fmt);
+        data = malloc(data_len + 1);
+        if (!data) return;
+        memcpy(data, fmt, data_len + 1);
+    }
+
+    send_packet(OTHER_BOARD_IP_ADDRESS, OTHER_BOARD_PORT, (UCHAR*) data, data_len);
+
+    free(data);
 }
 
 
@@ -562,7 +612,21 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 		current_role = RECEIVER;
 		printf("Leader packet received, becoming receiver\r\n");
 	}
+	else if (strncmp((char*)data, "ENC=", 4) == 0) //read encoder value
+	{
+		char *p = (char*) data + 4;
+		char *end;
+		uint32_t val = strtoul(p, &end, 4);
 
+		if (end == p) {
+		    printf("Incorrect encoder message formatting");
+		}
+		if (*end != '\0') {
+		    printf("Incorrect encoder message formatting");
+		}
+		if (val >= LED1_ON) val = LED1_ON - 1;
+		queue_push(val);
+	}
 	else
 	{
 		printf("Unknown command: %s\r\n", data);

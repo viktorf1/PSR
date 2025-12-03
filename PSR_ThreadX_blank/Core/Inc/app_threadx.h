@@ -35,14 +35,11 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 typedef enum {
-	LED1_ON,
-	LED1_OFF,
-	LED2_ON,
-	LED2_OFF,
-	MOTOR_TICK_RIGHT,
-	MOTOR_TICK_LEFT,
-	SEND_LEADER,
-	GOT_LEADER
+	QUEUE_EMPTY = -1,
+	LED1_ON = 1000,
+	LED1_OFF = 1001,
+	LED2_ON = 1002,
+	LED2_OFF = 1003
 } action_t;
 
 typedef enum {
@@ -79,6 +76,7 @@ UINT App_ThreadX_Init(VOID *memory_ptr);
 void MX_ThreadX_Init(void);
 /* USER CODE BEGIN EFP */
 int queue_push(uint32_t action_id);
+int queue_poll();
 /* USER CODE END EFP */
 
 /* USER CODE BEGIN 1 */
