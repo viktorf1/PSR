@@ -40,16 +40,21 @@
 #define HTTP_SERVER_PORT						80
 #define IP_LINK_CHECK_THREAD_STACK_SIZE			1024
 #define IP_LINK_CHECK_THREAD_PRIORITY			12
-#define BOARD1_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 1)
-#define BOARD2_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 2)
+#define BOARD1_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 11)
+#define BOARD2_IP_ADDRESS						IP_ADDRESS(192, 168, 1, 12)
+#define PC_IP_ADDRESS 							IP_ADDRESS(192, 168, 1, 10)
+
 #define BOARD1_PORT 							5000
 #define BOARD2_PORT 							5001
 
 /* CHANGE HERE TO SET THE OTHER BOARD ADDRESS AND PORT */
+#define THIS_BOARD_IP_ADDRESS					BOARD1_IP_ADDRESS
 #define OTHER_BOARD_IP_ADDRESS					BOARD2_IP_ADDRESS
+
+#define THIS_BOARD_PORT							BOARD1_PORT
 #define OTHER_BOARD_PORT						BOARD2_PORT
 
-#define PC_IP_ADDRESS 							IP_ADDRESS(192, 168, 1, 10)
+
 
 
 /* USER CODE END PD */
@@ -149,7 +154,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   }
 
    /* Create the main NX_IP instance */
-  ret = nx_ip_create(&NetXDuoEthIpInstance, "NetX Ip instance", NX_APP_DEFAULT_IP_ADDRESS, NX_APP_DEFAULT_NET_MASK, &NxAppPool, nx_stm32_eth_driver,
+  ret = nx_ip_create(&NetXDuoEthIpInstance, "NetX Ip instance", THIS_BOARD_IP_ADDRESS, NX_APP_DEFAULT_NET_MASK, &NxAppPool, nx_stm32_eth_driver,
                      pointer, Nx_IP_INSTANCE_THREAD_SIZE, NX_APP_INSTANCE_PRIORITY);
 
   if (ret != NX_SUCCESS)
@@ -287,8 +292,8 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 		}
 	}
 
-	// bind the socket to the port 5000 - this is the nucleo board local port
-	ret = nx_udp_socket_bind(&UDPSocket, 5000, TX_WAIT_FOREVER);
+	//bind the socket to board's port
+	ret = nx_udp_socket_bind(&UDPSocket, THIS_BOARD_PORT, TX_WAIT_FOREVER);
 	if (ret != NX_SUCCESS)
 	{
 		printf("Binding error. %02X\r\n", ret);
@@ -307,9 +312,9 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 		handle_udp_receive(&UDPSocket);
 	}
 
-	/* CREATE FTP AND HTTP SERVERS */
+	/* CREATE FTP AND HTTP SERVERS IF RECEIVER*/
 	// waiting for SD card mount and then start the FTP server
-	if (current_role == LEADER){
+	if (current_role == RECEIVER){
 		ret = tx_semaphore_get(&sdMountDone, TX_WAIT_FOREVER);
 		if (ret == TX_SUCCESS)
 		{
@@ -354,6 +359,7 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 	{
 		// wait for one second or until the UDP is received
 		if (current_role == LEADER) poll_queue_and_send();
+		check_switch_and_send();
 		handle_udp_receive(&UDPSocket);
 	}
 
@@ -390,6 +396,11 @@ UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr,
     {
         strcpy(resource, "/index.html");
         return NX_SUCCESS;
+    }
+
+    if (strcmp(resource, "/data.json") == 0)
+    {
+        return NX_WEB_HTTP_CALLBACK_COMPLETED;
     }
 
     if (memcmp(resource, "/LED", 4) == 0)
@@ -498,7 +509,8 @@ static VOID handle_udp_receive(NX_UDP_SOCKET* socket){
 			   port);
 
 		process_udp_command(data_buffer, bytes_read);
-		// send_packet(pkt, ip, port); // optional echo
+		//echo back
+		//send_packet(ip, port, data_buffer, bytes_read);
 	}
 
 	nx_packet_release(pkt);
@@ -543,9 +555,11 @@ static VOID poll_queue_and_send(VOID) {
 
     const char *fmt = NULL;
 
+	//handle encoder value
     if (rcv < 1000) {
         fmt = "ENC=%d";
     } else {
+		//handle rest of the states
         switch (rcv) {
             case LED1_ON:  fmt = "LED1G=1"; break;
             case LED1_OFF: fmt = "LED1G=0"; break;
@@ -581,8 +595,14 @@ static VOID poll_queue_and_send(VOID) {
 
 static VOID process_udp_command(UCHAR *data, UINT length) {
 
+	/* LEADER SELECTION */
+	if ((strncmp((char*)data, "LDR", 3) == 0) && (current_role == NOT_DETERMINED))
+	{
+		current_role = RECEIVER;
+		printf("Leader packet received, becoming receiver\r\n");
+	}
 	/* CHECK LED */
-	if (strncmp((char*)data, "LED1G=1", 7) == 0)
+	else if (strncmp((char*)data, "LED1G=1", 7) == 0)
 	{
 		//HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_RESET);
 		queue_push(LED1_ON);
@@ -607,24 +627,25 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 		queue_push(LED2_OFF);
 		printf("LED2 Red OFF\r\n");
 	}
-	else if ((strncmp((char*)data, "LDR", 3) == 0) && (current_role == NOT_DETERMINED))
-	{
-		current_role = RECEIVER;
-		printf("Leader packet received, becoming receiver\r\n");
-	}
+
 	else if (strncmp((char*)data, "ENC=", 4) == 0) //read encoder value
 	{
 		char *p = (char*) data + 4;
 		char *end;
-		uint32_t val = strtoul(p, &end, 4);
+		uint32_t val = strtoul(p, &end, 10);
 
 		if (end == p) {
-		    printf("Incorrect encoder message formatting");
+		    printf("ERROR: Incorrect encoder message formatting (No value set)\r\n");
+			return;
 		}
 		if (*end != '\0') {
-		    printf("Incorrect encoder message formatting");
+		    printf("ERROR: Incorrect encoder message formatting (Invalid characters)\r\n");
+			return;
 		}
-		if (val >= LED1_ON) val = LED1_ON - 1;
+		else if (val > ENCODER_MAX) {
+			printf("Warning: max encoder value reached: %d, setting to %d", val, ENCODER_MAX);
+			val = ENCODER_MAX;
+		}
 		queue_push(val);
 	}
 	else

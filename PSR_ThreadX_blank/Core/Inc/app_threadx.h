@@ -36,6 +36,8 @@ extern "C" {
 /* USER CODE BEGIN ET */
 typedef enum {
 	QUEUE_EMPTY = -1,
+	ENCODER_MIN = 0,
+	ENCODER_MAX = 360,
 	LED1_ON = 1000,
 	LED1_OFF = 1001,
 	LED2_ON = 1002,

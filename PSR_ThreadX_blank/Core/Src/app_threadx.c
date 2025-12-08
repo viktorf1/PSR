@@ -50,8 +50,6 @@ uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 
 TX_THREAD led_thread;
 
-bool is_sender = false;
-
 leader_state_t current_role = NOT_DETERMINED;
 
 TX_QUEUE q;
