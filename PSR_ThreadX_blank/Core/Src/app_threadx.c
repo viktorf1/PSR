@@ -132,16 +132,22 @@ int queue_poll(){
 void encoder_thread_entry(ULONG init)
 {
   uint32_t pos = 0;
-  if(is_sender) {
+  if (current_role == LEADER) {
     while(1) {
       encoder_driver_input(&pos);
       queue_push(pos);
       tx_thread_sleep(20);
     }
   }
-  else {
+  else if (current_role == RECEIVER) {
     while(1) {
-      motor_driver_controller(queue_poll());
+      int val = queue_poll();
+      if (val != QUEUE_EMPTY && val <= ENCODER_MAX) {
+        motor_driver_controller(queue_poll());
+      } else {
+          //TODO: add rest of the actions
+         printf("Invalid encoder value received: %d\r\n", val);
+      }
       tx_thread_sleep(20);
     }
   }
