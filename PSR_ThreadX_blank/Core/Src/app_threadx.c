@@ -34,10 +34,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TRACEX_BUFFER_SIZE		64000
+#define TRACEX_BUFFER_SIZE		    64000
 #define ENCODER_THREAD_STACK_SIZE	4096
 #define ENCODER_THREAD_PRIORITY		10
-#define QUEUE_CAP				4
+#define QUEUE_CAP				    4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
