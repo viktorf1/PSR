@@ -558,7 +558,7 @@ static VOID check_switch_and_send(VOID){
 
 static VOID poll_queue_and_send(VOID) {
     int rcv = queue_poll();
-    printf("Queue value: %d\r\n", rcv);
+//    printf("Queue value: %d\r\n", rcv);
     if (rcv == QUEUE_EMPTY) return;
 
     const char *fmt = NULL;
@@ -655,6 +655,7 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 			printf("Warning: max encoder value reached: %ld, setting to %d", val, ENCODER_MAX);
 			val = ENCODER_MAX;
 		}
+		printf("New Encoder value being sent: %ld\r\n", val);
 		queue_push(val);
 	}
 	else
