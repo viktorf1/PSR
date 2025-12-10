@@ -143,9 +143,13 @@ void encoder_thread_entry(ULONG init)
   }
   else {
     while(1) {
+	  printf(".\n");
       int ret = queue_poll();
+      printf("Queue poll: %d\n", ret);
       if(ret != QUEUE_EMPTY) {
         pos = (uint32_t)ret;
+        //pos = 1; //DBG
+    	printf("Motor to %ld\n", pos);
         motor_driver_controller(pos);
         tx_thread_sleep(20);
       }
