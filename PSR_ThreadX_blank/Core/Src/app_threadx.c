@@ -34,10 +34,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TRACEX_BUFFER_SIZE		64000
+#define TRACEX_BUFFER_SIZE		    64000
 #define ENCODER_THREAD_STACK_SIZE	4096
 #define ENCODER_THREAD_PRIORITY		10
-#define QUEUE_CAP				4
+#define QUEUE_CAP				    4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,12 +51,11 @@ uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 
 TX_THREAD encoder_thread;
 
-bool is_sender = false;
-
 leader_state_t current_role = NOT_DETERMINED;
 
 TX_QUEUE q;
 uint32_t q_data[QUEUE_CAP] = {0};
+extern TX_SEMAPHORE stateDetermined;
 
 /* USER CODE END PV */
 
@@ -82,7 +81,12 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
 
   if (ret != TX_SUCCESS)
     return ret;
+  ret = tx_queue_create(&q, "shizz queue", 1, q_data, sizeof(uint32_t) * QUEUE_CAP);
 
+  if (ret != TX_SUCCESS){
+	  printf("Error creating queue!\n");
+	  return ret;
+  }
 
   // ENCODER thread create
   ret = tx_thread_create(&encoder_thread, "ENCODER thread", encoder_thread_entry, 1234,
@@ -127,30 +131,45 @@ int queue_push(uint32_t action_id){
 int queue_poll(){
 	int rcv;
 	int status = tx_queue_receive(&q, &rcv,TX_NO_WAIT);
-	if (status ==TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
+	//printf("Status: %d\n", status);
+	if (status == TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
 	return rcv;
 }
 
 void encoder_thread_entry(ULONG init)
 {
+  printf("Entered encoder thread\r\n");
   uint32_t pos = 0;
-  if(is_sender) {
+  tx_semaphore_get(&stateDetermined, TX_WAIT_FOREVER);
+  if (current_role == LEADER) {
+	  printf("Entering LEADER loop\r\n");
+	  uint32_t last_pos = pos;
     while(1) {
       encoder_driver_input(&pos);
-      queue_push(pos);
-      tx_thread_sleep(5);
+      if (last_pos != pos){
+		  printf("Encoder position: %ld\n", pos);
+		  queue_push(pos);
+      }
+      last_pos = pos;
+      tx_thread_sleep(20);
     }
   }
-  else {
+  else if (current_role == RECEIVER) {
+	printf("Entering RECEIVER loop\r\n");
     while(1) {
+	  printf(".\n");
       int ret = queue_poll();
+      printf("Queue poll: %d\n", ret);
       if(ret != QUEUE_EMPTY) {
-        printf("Queue poll: %d\n", ret);
         pos = (uint32_t)ret;
-      }
+        //pos = 1; //DBG
     	printf("Motor to %ld\n", pos);
-      motor_driver_controller(pos);
-      tx_thread_sleep(5);
+        motor_driver_controller(pos);
+        tx_thread_sleep(5);
+      }
+      else {
+        motor_driver_input_left(0);
+      }
     }
   }
 }
