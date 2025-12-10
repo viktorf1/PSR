@@ -151,7 +151,7 @@ void encoder_thread_entry(ULONG init)
 		  queue_push(pos);
       }
       last_pos = pos;
-      tx_thread_sleep(20);
+      tx_thread_sleep(5);
     }
   }
   else if (current_role == RECEIVER) {
