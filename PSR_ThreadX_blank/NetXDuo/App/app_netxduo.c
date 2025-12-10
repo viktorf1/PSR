@@ -16,6 +16,7 @@
   *
   ******************************************************************************
   */
+
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -113,14 +114,14 @@ static VOID poll_queue_and_send(VOID);
 /* USER CODE END PFP */
 
 /**
-*  @brief  Application NetXDuo Initialization.
-*  @param memory_ptr: memory pointer
-*  @retval int
+  * @brief  Application NetXDuo Initialization.
+  * @param memory_ptr: memory pointer
+  * @retval int
   */
 UINT MX_NetXDuo_Init(VOID *memory_ptr)
 {
   UINT ret = NX_SUCCESS;
-  TX_BYTE_POOL byte_pool = (TX_BYTE_POOL)memory_ptr;
+  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
   CHAR *pointer;
 
   /* USER CODE BEGIN MX_NetXDuo_MEM_POOL */
@@ -141,7 +142,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   }
 
   /* Create the Packet pool to be used for packet allocation,
-   *  If extra NX_PACKET are to be used the NX_APP_PACKET_POOL_SIZE should be increased
+   * If extra NX_PACKET are to be used the NX_APP_PACKET_POOL_SIZE should be increased
    */
   ret = nx_packet_pool_create(&NxAppPool, "NetXDuo App Pool", DEFAULT_PAYLOAD_SIZE, pointer, NX_APP_PACKET_POOL_SIZE);
 
@@ -275,9 +276,9 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
 }
 
 /**
-*  @brief  Main thread entry.
-*  @param thread_input: ULONG user argument used by the thread entry
-*  @retval none
+* @brief  Main thread entry.
+* @param thread_input: ULONG user argument used by the thread entry
+* @retval none
 */
 static VOID nx_app_thread_entry (ULONG thread_input)
 {
@@ -510,7 +511,7 @@ static VOID handle_udp_receive(NX_UDP_SOCKET* socket){
 			   bytes_read,
 			   (ip >> 24) & 0xFF,
 			   (ip >> 16) & 0xFF,
-			   (ip >> 😎 & 0xFF,
+			   (ip >> 8) & 0xFF,
 			   ip & 0xFF,
 			   port);
 
@@ -642,7 +643,7 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 
 	else if (strncmp((char*)data, "ENC=", 4) == 0) //read encoder value
 	{
-		char p = (char) data + 4;
+		char *p = (char*) data + 4;
 		char *end;
 		uint32_t val = strtoul(p, &end, 10);
 
