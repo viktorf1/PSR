@@ -49,6 +49,7 @@ UINT motor_driver_input_left(uint32_t value)
 {
 	UINT ret;
 	if (value > 500) value = 500;
+	if (value < 5) value = 0;
 	ret = tx_mutex_get(&motor_mutex, TX_WAIT_FOREVER);
 	TIM2->CCR3 = value;
 	TIM2->CCR4 = 0;
@@ -60,6 +61,7 @@ UINT motor_driver_input_right(uint32_t value)
 {
 	UINT ret;
 	if (value > 500) value = 500;
+	if (value < 5) value = 0;
 	ret = tx_mutex_get(&motor_mutex, TX_WAIT_FOREVER);
 	TIM2->CCR3 = 0;
 	TIM2->CCR4 = value;
