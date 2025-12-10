@@ -143,8 +143,15 @@ void encoder_thread_entry(ULONG init)
   }
   else {
     while(1) {
-      motor_driver_controller(queue_poll());
-      tx_thread_sleep(20);
+      int ret = queue_poll();
+      if(ret != QUEUE_EMPTY) {
+        pos = (uint32_t)ret;
+        motor_driver_controller(pos);
+        tx_thread_sleep(20);
+      }
+      else {
+        motor_driver_input_left(0);
+      }
     }
   }
 }
