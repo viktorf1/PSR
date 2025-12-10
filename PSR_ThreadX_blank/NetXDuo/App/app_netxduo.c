@@ -493,7 +493,7 @@ static VOID handle_udp_receive(NX_UDP_SOCKET* socket){
 	UINT port;
 	ULONG bytes_read = 0;
 
-	ret = nx_udp_socket_receive(socket, &pkt, 100);
+	ret = nx_udp_socket_receive(socket, &pkt, 1);
 	if (ret != NX_SUCCESS)
 		return;
 
