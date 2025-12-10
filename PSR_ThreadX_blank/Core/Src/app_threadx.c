@@ -157,14 +157,14 @@ void encoder_thread_entry(ULONG init)
   else if (current_role == RECEIVER) {
 	printf("Entering RECEIVER loop\r\n");
     while(1) {
-      int val = queue_poll();
-      if (val != QUEUE_EMPTY && val <= ENCODER_MAX) {
-        motor_driver_controller(queue_poll());
-      } else {
-          //TODO: add rest of the actions
-         printf("Invalid encoder value received: %d\r\n", val);
+      int ret = queue_poll();
+      printf("Queue poll: %d\n", ret);
+      if(ret != QUEUE_EMPTY) {
+        pos = (uint32_t)ret;
+    	printf("Motor to %ld\n", pos);
+        motor_driver_controller(pos);
+        tx_thread_sleep(5);
       }
-      tx_thread_sleep(20);
     }
   }
 }
