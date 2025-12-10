@@ -37,11 +37,11 @@ extern "C" {
 typedef enum {
 	QUEUE_EMPTY = -1,
 	ENCODER_MIN = 0,
-	ENCODER_MAX = 360,
-	LED1_ON = 1000,
-	LED1_OFF = 1001,
-	LED2_ON = 1002,
-	LED2_OFF = 1003
+	ENCODER_MAX = 70000,
+	LED1_ON = ENCODER_MAX + 1,
+	LED1_OFF = LED1_ON + 1,
+	LED2_ON = LED1_OFF + 1,
+	LED2_OFF = LED2_ON + 1
 } action_t;
 
 typedef enum {

@@ -49,7 +49,7 @@
 
 /* CHANGE HERE TO SET THE OTHER BOARD ADDRESS AND PORT */
 #define THIS_BOARD_IP_ADDRESS					BOARD1_IP_ADDRESS
-#define OTHER_BOARD_IP_ADDRESS					BOARD2_IP_ADDRESS
+#define OTHER_BOARD_IP_ADDRESS					PC_IP_ADDRESS
 
 #define THIS_BOARD_PORT							BOARD1_PORT
 #define OTHER_BOARD_PORT						BOARD2_PORT
@@ -75,6 +75,8 @@ NX_FTP_SERVER 			ftpServer;
 CHAR 					*ftpServerStack;
 
 static UCHAR 			data_buffer[256];
+
+TX_SEMAPHORE stateDetermined;
 
 extern TX_SEMAPHORE 	sdMountDone;
 extern FX_MEDIA        	sdio_disk;
@@ -125,6 +127,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   /* USER CODE END MX_NetXDuo_MEM_POOL */
 
   /* USER CODE BEGIN 0 */
+  tx_semaphore_create(&stateDetermined, "State determined", 0);
 
   /* USER CODE END 0 */
 
@@ -311,6 +314,9 @@ static VOID nx_app_thread_entry (ULONG thread_input)
 		check_switch_and_send();
 		handle_udp_receive(&UDPSocket);
 	}
+
+	tx_semaphore_put(&stateDetermined);
+
 
 	/* CREATE FTP AND HTTP SERVERS IF RECEIVER*/
 	// waiting for SD card mount and then start the FTP server
@@ -514,7 +520,7 @@ static VOID handle_udp_receive(NX_UDP_SOCKET* socket){
 	}
 
 	nx_packet_release(pkt);
-	printf("Packets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
+	printf("\nPackets available %d\r\n\n", (int) NxAppPool.nx_packet_pool_available);
 }
 
 static VOID check_switch_and_send(VOID){
@@ -524,9 +530,9 @@ static VOID check_switch_and_send(VOID){
 	// Check if state has changed
 	if (current_switch_state != prev_switch_state) {
 		prev_switch_state = current_switch_state;
-		printf("Switch state: %u", current_switch_state);
+		printf("Switch state: %u\r\n", current_switch_state);
 		UCHAR message[16];
-		UINT message_len;
+		UINT message_len = 0;
 		if (current_role != NOT_DETERMINED){
 			if (current_switch_state == GPIO_PIN_RESET){
 				message_len = sprintf((char*)message, "SW1=1");
@@ -545,12 +551,14 @@ static VOID check_switch_and_send(VOID){
 			}
 
 		// Send to PC (or other board)
+		if (message_len > 0)
 		send_packet(OTHER_BOARD_IP_ADDRESS, OTHER_BOARD_PORT, message, message_len);
 	}
 }
 
 static VOID poll_queue_and_send(VOID) {
     int rcv = queue_poll();
+    printf("Queue value: %d\r\n", rcv);
     if (rcv == QUEUE_EMPTY) return;
 
     const char *fmt = NULL;
@@ -574,6 +582,7 @@ static VOID poll_queue_and_send(VOID) {
 
     if (rcv < 1000) {
         // need formatting
+    	printf("Sending Encoder value: %d\r\n", rcv);
         int needed = snprintf(NULL, 0, fmt, rcv) + 1;
         data = malloc(needed);
         if (!data) return;
@@ -643,7 +652,7 @@ static VOID process_udp_command(UCHAR *data, UINT length) {
 			return;
 		}
 		else if (val > ENCODER_MAX) {
-			printf("Warning: max encoder value reached: %d, setting to %d", val, ENCODER_MAX);
+			printf("Warning: max encoder value reached: %ld, setting to %d", val, ENCODER_MAX);
 			val = ENCODER_MAX;
 		}
 		queue_push(val);
