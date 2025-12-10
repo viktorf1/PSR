@@ -156,16 +156,16 @@ void encoder_thread_entry(ULONG init)
   }
   else if (current_role == RECEIVER) {
 	printf("Entering RECEIVER loop\r\n");
-    while(1) {
-      int ret = queue_poll();
-      printf("Queue poll: %d\n", ret);
-      if(ret != QUEUE_EMPTY) {
-        pos = (uint32_t)ret;
-    	printf("Motor to %ld\n", pos);
-        motor_driver_controller(pos);
-        tx_thread_sleep(5);
-      }
-    }
+	while(1) {
+	  int ret = queue_poll();
+	  if(ret != QUEUE_EMPTY) {
+	    printf("Queue poll: %d\n", ret);
+	    pos = (uint32_t)ret;
+	  }
+	  printf("Motor to %ld\n", pos);
+	  motor_driver_controller(pos);
+	  tx_thread_sleep(5);
+	}
   }
 }
 
