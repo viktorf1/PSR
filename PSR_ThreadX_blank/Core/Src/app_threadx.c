@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "main.h"
+#include "encoder_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,10 +34,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TRACEX_BUFFER_SIZE		64000
-#define LED_THREAD_STACK_SIZE	4096
-#define LED_THREAD_PRIORITY		10
-#define QUEUE_CAP				4
+#define TRACEX_BUFFER_SIZE		    64000
+#define ENCODER_THREAD_STACK_SIZE	4096
+#define ENCODER_THREAD_PRIORITY		10
+#define QUEUE_CAP				    4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,20 +49,19 @@
 /* USER CODE BEGIN PV */
 uint8_t tracex_buffer[TRACEX_BUFFER_SIZE];
 
-TX_THREAD led_thread;
-
-bool is_sender = false;
+TX_THREAD encoder_thread;
 
 leader_state_t current_role = NOT_DETERMINED;
 
 TX_QUEUE q;
 uint32_t q_data[QUEUE_CAP] = {0};
+extern TX_SEMAPHORE stateDetermined;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-void led_thread_entry(ULONG init);
+void encoder_thread_entry(ULONG init);
 /* USER CODE END PFP */
 
 /**
@@ -76,16 +76,20 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   TX_BYTE_POOL *bytePool = (TX_BYTE_POOL *) memory_ptr;
   VOID *pointer;
 
-  // stack allocation for LED thread
-  ret = tx_byte_allocate(bytePool, &pointer, LED_THREAD_STACK_SIZE, TX_NO_WAIT);
-
+  // stack allocation for ENCODER thread
+  ret = tx_byte_allocate(bytePool, &pointer, ENCODER_THREAD_STACK_SIZE, TX_NO_WAIT);
   if (ret != TX_SUCCESS)
     return ret;
+  ret = tx_queue_create(&q, "shizz queue", 1, q_data, sizeof(uint32_t) * QUEUE_CAP);
 
+  if (ret != TX_SUCCESS){
+	  printf("Error creating queue!\n");
+	  return ret;
+  }
 
-  // LED thread create
-  ret = tx_thread_create(&led_thread, "LED thread", led_thread_entry, 1234,
-	  pointer, LED_THREAD_STACK_SIZE, LED_THREAD_PRIORITY, LED_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_AUTO_START);
+  // ENCODER thread create
+  ret = tx_thread_create(&encoder_thread, "ENCODER thread", encoder_thread_entry, 1234,
+	  pointer, ENCODER_THREAD_STACK_SIZE, ENCODER_THREAD_PRIORITY, ENCODER_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_AUTO_START);
 
   if (ret != TX_SUCCESS)
     return ret;
@@ -122,20 +126,46 @@ void MX_ThreadX_Init(void)
 int queue_push(uint32_t action_id){
 	return tx_queue_send(&q, &action_id,TX_NO_WAIT);
 }
+
 int queue_poll(){
 	int rcv;
 	int status = tx_queue_receive(&q, &rcv,TX_NO_WAIT);
-	if (status ==TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
+	//printf("Status: %d\n", status);
+	if (status == TX_QUEUE_EMPTY) rcv = QUEUE_EMPTY;
 	return rcv;
 }
 
-void led_thread_entry(ULONG init)
+void encoder_thread_entry(ULONG init)
 {
-	while(1)
-	{
-
-		tx_thread_sleep(20);
-	}
+  printf("Entered encoder thread\r\n");
+  uint32_t pos = 0;
+  tx_semaphore_get(&stateDetermined, TX_WAIT_FOREVER);
+  if (current_role == LEADER) {
+	  printf("Entering LEADER loop\r\n");
+	  uint32_t last_pos = pos;
+    while(1) {
+      encoder_driver_input(&pos);
+      if (last_pos != pos){
+		  printf("Encoder position: %ld\n", pos);
+		  queue_push(pos);
+      }
+      last_pos = pos;
+      tx_thread_sleep(20);
+    }
+  }
+  else if (current_role == RECEIVER) {
+	printf("Entering RECEIVER loop\r\n");
+    while(1) {
+      int val = queue_poll();
+      if (val != QUEUE_EMPTY && val <= ENCODER_MAX) {
+        motor_driver_controller(queue_poll());
+      } else {
+          //TODO: add rest of the actions
+         printf("Invalid encoder value received: %d\r\n", val);
+      }
+      tx_thread_sleep(20);
+    }
+  }
 }
 
 /* USER CODE END 1 */
