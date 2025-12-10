@@ -138,7 +138,7 @@ void encoder_thread_entry(ULONG init)
     while(1) {
       encoder_driver_input(&pos);
       queue_push(pos);
-      tx_thread_sleep(20);
+      tx_thread_sleep(5);
     }
   }
   else {
@@ -151,7 +151,7 @@ void encoder_thread_entry(ULONG init)
         //pos = 1; //DBG
     	printf("Motor to %ld\n", pos);
         motor_driver_controller(pos);
-        tx_thread_sleep(20);
+        tx_thread_sleep(5);
       }
       else {
         motor_driver_input_left(0);
