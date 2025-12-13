@@ -1,3 +1,4 @@
+<!-- language: html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -5,82 +6,259 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="A layout example with a side menu that hides on mobile, just like the Pure website.">
     <title>PSR Base Board</title>
-    
+
     <link rel="stylesheet" href="pure-min.css" type="text/css" media="screen">
     <link rel="stylesheet" href="pure.css" type="text/css" media="screen">
-    
-<script>
 
- function AJAX(url, callback)
- { 
-	 var req = AJAX_init(); 
-	 req.onreadystatechange = AJAX_processRequest; 
-	 
-	 function AJAX_init() { 
-		 if (window.XMLHttpRequest) { 
-		 	return new XMLHttpRequest(); 
-		 } else if (window.ActiveXObject) { 
-		 	return new ActiveXObject('Microsoft.XMLHTTP'); 
-		 } 
-	 };	  
-	 function AJAX_processRequest() { 
-		 if(req.readyState == 4) { 
-		 	if(req.status == 200) { 
-		 	if(callback) 
-		 		callback(req.responseText); 
-		 	} 
-		 } 
-	 }; 	 
-	 this.doGet = function() { 
-		 req.open('GET', url, true); 
-		 req.send(null); 
-	 };	  
-	 this.doPost = function(body) { 
-		 req.open('POST', url, true); 
-		 req.setRequestHeader('Content-Type', 
-		 'application/x-www-form-urlencoded'); 
-		 req.setRequestHeader('ISAJAX','yes'); 
-		 req.send(body); 
-	 }; 
- };
- function $(id){return document.getElementById(id);}  
- function $$(id){return document.getElementsByName(id);} 
+    <script>
+        function AJAX(url, callback)
+        {
+            const req = AJAX_init();
+            req.onreadystatechange = AJAX_processRequest;
 
-/* Get: Devinfo */
-/* function DevinfoCallback(), getDevinfo() */
- 
- function toggleLed(LED)
-{ 
-    setTimeout(function(){ 		 
-		 dout=new AJAX('LED' + LED, function(t){ 
-		 	try{eval(t);}catch(e){alert(e);} 
-		 }); 
-		 
-		 var post = 'LED' + LED;		 
-		 dout.doPost(post); 		 
-	},300);
- };
+            function AJAX_init() {
+                if (window.XMLHttpRequest) {
+                    return new XMLHttpRequest();
+                } else if (window.ActiveXObject) {
+                    return new ActiveXObject('Microsoft.XMLHTTP');
+                }
+            }
+            function AJAX_processRequest() {
+                if(req.readyState === 4) {
+                    if(req.status === 200) {
+                        if(callback)
+                            callback(req.responseText);
+                    }
+                }
+            }
+            this.doGet = function() {
+                req.open('GET', url, true);
+                req.send(null);
+            };
+            this.doPost = function(body) {
+                req.open('POST', url, true);
+                req.setRequestHeader('Content-Type',
+                    'application/x-www-form-urlencoded');
+                req.setRequestHeader('ISAJAX','yes');
+                req.send(body);
+            };
+        }
+        function $(id){return document.getElementById(id);}
+        function $$(id){return document.getElementsByName(id);}
 
-</script>
-    
+        function toggleLed(LED)
+        {
+            setTimeout(function(){
+                dout=new AJAX('LED' + LED, function(t){
+                    try{eval(t);}catch(e){alert(e);}
+                });
+
+                var post = 'LED' + LED;
+                dout.doPost(post);
+            },300);
+        }
+
+        /* --- Poll + motor graph (last 1 minute) --- */
+
+        // Configuration
+        const POLL_INTERVAL_MS = 200; // frequent requests for smooth graph
+        const WINDOW_MS = 60 * 1000; // show last 60 seconds
+
+        // Sample buffer: array of objects {t: timestamp_ms, v: numericValue}
+        let motorSamples = [];
+
+        // Add sample and trim old ones
+        function addMotorSample(value, ts) {
+            motorSamples.push({t: ts, v: value});
+            const cutoff = ts - WINDOW_MS;
+            // remove older than 1 minute
+            while(motorSamples.length && motorSamples[0].t < cutoff) motorSamples.shift();
+        }
+
+        // Single poll (returns text)
+        function pollMotorStatusOnce(callback) {
+            var r = new AJAX('MOTOR_STATUS', function(response){
+                if(callback) callback(response);
+            });
+            r.doGet();
+        }
+
+        // Poll that adds numeric samples to buffer and updates text
+        function pollMotorValue() {
+            var r = new AJAX('MOTOR_STATUS', function(response){
+                const ts = Date.now();
+                // try to extract a number
+                const v = parseFloat(response);
+                if(!isNaN(v)) addMotorSample(v, ts);
+                const el = document.getElementById('MOTOR_STATUS');
+                if(el) el.textContent = response;
+            });
+            r.doGet();
+        }
+
+        // Canvas
+        const canvasId = 'motorChart';
+        let canvas, ctx, dpr;
+
+        function setupCanvas() {
+            canvas = document.getElementById(canvasId);
+            if(!canvas) return;
+            ctx = canvas.getContext('2d');
+            dpr = window.devicePixelRatio || 1;
+            // set backing store for crisp rendering
+            const cssW = canvas.clientWidth;
+            const cssH = canvas.clientHeight;
+            canvas.width = Math.round(cssW * dpr);
+            canvas.height = Math.round(cssH * dpr);
+            canvas.style.width = cssW + 'px';
+            canvas.style.height = cssH + 'px';
+            ctx.scale(dpr, dpr);
+        }
+
+        function mapY(value, minV, maxV, height, padding) {
+            const usable = height - padding*2;
+            if(maxV === minV) return padding + usable/2;
+            return padding + (1 - (value - minV) / (maxV - minV)) * usable;
+        }
+
+        function drawChartFrame() {
+            if(!canvas || !ctx) return;
+            const w = canvas.clientWidth;
+            const h = canvas.clientHeight;
+            // background
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, w, h);
+
+            const now = Date.now();
+            const cutoff = now - WINDOW_MS;
+
+            // filter valid samples
+            const samples = motorSamples.filter(s => s.t >= cutoff);
+            if(samples.length === 0) {
+                // No point to draw, show "No data"
+                ctx.fillStyle = '#666';
+                ctx.font = '12px sans-serif';
+                ctx.fillText('No data', 10, 20);
+                requestAnimationFrame(drawChartFrame);
+                return;
+            }
+
+            // Y axis min/max
+            let minV = samples[0].v, maxV = samples[0].v;
+            for(const s of samples) {
+                if(s.v < minV) minV = s.v;
+                if(s.v > maxV) maxV = s.v;
+            }
+            // padding
+            if(minV === maxV) {
+                minV -= 1;
+                maxV += 1;
+            } else {
+                const pad = 0.05 * (maxV - minV);
+                minV -= pad;
+                maxV += pad;
+            }
+
+            // plot grid lines
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let t = Math.ceil(cutoff / 15000) * 15000; t <= now; t += 15000) {
+                const x = w - ((now - t) / WINDOW_MS) * w;
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+            }
+            ctx.stroke();
+
+            // plot line chart
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#0077cc';
+            ctx.beginPath();
+            for(let i = 0; i < samples.length; i++) {
+                const s = samples[i];
+                const x = w - ((now - s.t) / WINDOW_MS) * w;
+                const y = mapY(s.v, minV, maxV, h, 8);
+                if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // plot last point
+            const last = samples[samples.length - 1];
+            const lx = w - ((now - last.t) / WINDOW_MS) * w;
+            const ly = mapY(last.v, minV, maxV, h, 8);
+            ctx.fillStyle = '#cc3300';
+            ctx.beginPath();
+            ctx.arc(lx, ly, 3, 0, Math.PI*2);
+            ctx.fill();
+
+            // Y axis: min/max values
+            ctx.fillStyle = '#333';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(maxV.toFixed(2), 6, 12);
+            ctx.fillText(minV.toFixed(2), 6, h - 4);
+
+            // X axis: time
+            ctx.fillStyle = '#333';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Now', w - 6, h - 4);
+            ctx.textAlign = 'left';
+            ctx.fillText('-60s', 6, h - 4);
+            ctx.textAlign = 'start';
+
+            requestAnimationFrame(drawChartFrame);
+        }
+
+        function startMotorStatusPolling(intervalMs) {
+            pollMotorStatusOnce(function(text){
+                var el = document.getElementById('MOTOR_STATUS');
+                if(el) el.textContent = text;
+            });
+            return setInterval(function(){
+                pollMotorStatusOnce(function(text){
+                    var el = document.getElementById('MOTOR_STATUS');
+                    if(el) el.textContent = text;
+                });
+            }, intervalMs);
+        }
+
+        document.addEventListener('DOMContentLoaded', function(){
+            setupCanvas();
+            requestAnimationFrame(drawChartFrame);
+
+            // poll motor value
+            pollMotorValue(); // initial
+            setInterval(pollMotorValue, POLL_INTERVAL_MS); // poll every POLL_INTERVAL_MS
+
+            // poll the text value
+            startMotorStatusPolling(1000);
+        });
+
+        // handle resize to rescale the canvas
+        window.addEventListener('resize', function(){
+            if(document.readyState === 'complete') {
+                setupCanvas();
+            }
+        });
+
+    </script>
+
 </head>
 <body>
-
-
 
 <div id="layout">
     <!-- Menu toggle -->
     <a href="#menu" id="menuLink" class="menu-link">
-        <!-- Hamburger icon -->
         <span></span>
     </a>
 
     <div id="menu">
         <div class="pure-menu">
-           <a class="pure-menu-heading" href="index.html"><img src=logo.svg width=240></a>
+            <a class="pure-menu-heading" href="index.html"><img src=logo.svg width=240 alt=""></a>
 
-             <ul class="pure-menu-list">
-            	<li class="pure-menu-item"><a href="index.html" class="pure-menu-link">Home page</a></li>
+            <ul class="pure-menu-list">
+                <li class="pure-menu-item"><a href="index.html" class="pure-menu-link">Home page</a></li>
             </ul>
         </div>
     </div>
@@ -92,28 +270,31 @@
         </div>
 
         <div class="content">
-        
-		<form class="pure-form pure-form-aligned">        
-		<fieldset>
-		
-        <h2 class="content-subhead">LED control</h2>                     
-            
-                    <div class="pure-controls">                        
+
+            <form class="pure-form pure-form-aligned">
+                <fieldset>
+
+                    <h2 class="content-subhead">LED control</h2>
+
+                    <div class="pure-controls">
                         <button type="button" class="pure-button" onclick='toggleLed(1);'>LED1</button>
                         <button type="button" class="pure-button" onclick='toggleLed(2);'>LED2</button>
                         <button type="button" class="pure-button" onclick='toggleLed(3);'>LED3</button>
-                    </div> 
-                    
-    
-            </fieldset>
+                    </div>
+
+                    <!-- Motor status and chart -->
+                    <h2 class="content-subhead">Motor status</h2>
+                    <div id="MOTOR_STATUS">unknown</div>
+                    <div style="margin-top:8px;">
+                        <canvas id="motorChart" style="width:100%;max-width:800px;height:200px;border:1px solid #ddd;background:#fff;"></canvas>
+                    </div>
+
+                </fieldset>
             </form>
-            
+
         </div>
     </div>
 </div>
-
-
-
 
 <script src="ui.js"></script>
 

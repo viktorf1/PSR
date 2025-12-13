@@ -142,6 +142,7 @@ void encoder_thread_entry(ULONG init)
   uint32_t pos = 0;
   tx_semaphore_get(&stateDetermined, TX_WAIT_FOREVER);
   if (current_role == LEADER) {
+	  encoder_driver_initialize();
 	  printf("Entering LEADER loop\r\n");
 	  uint32_t last_pos = pos;
     while(1) {
@@ -156,6 +157,8 @@ void encoder_thread_entry(ULONG init)
   }
   else if (current_role == RECEIVER) {
 	printf("Entering RECEIVER loop\r\n");
+	motor_driver_initialize();
+	global_position_initialize();
 	while(1) {
 	  int ret = queue_poll();
 	  if(ret != QUEUE_EMPTY) {

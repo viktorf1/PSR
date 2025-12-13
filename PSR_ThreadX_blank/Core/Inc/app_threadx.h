@@ -41,7 +41,9 @@ typedef enum {
 	LED1_ON = ENCODER_MAX + 1,
 	LED1_OFF = LED1_ON + 1,
 	LED2_ON = LED1_OFF + 1,
-	LED2_OFF = LED2_ON + 1
+	LED2_OFF = LED2_ON + 1,
+	LED3_ON = LED2_OFF +1,
+	LED3_OFF = LED3_ON +1
 } action_t;
 
 typedef enum {

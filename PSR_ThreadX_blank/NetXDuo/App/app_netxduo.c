@@ -28,6 +28,7 @@
 #include "nx_web_http_server.h"
 #include "main.h"
 #include "app_threadx.h"
+#include "encoder_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -83,6 +84,8 @@ extern TX_SEMAPHORE 	sdMountDone;
 extern FX_MEDIA        	sdio_disk;
 
 extern leader_state_t 	current_role;
+
+extern uint32_t 		global_position;
 NX_WEB_HTTP_SERVER httpServer;
 CHAR *httpServerStack;
 
@@ -405,30 +408,68 @@ UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr,
         return NX_SUCCESS;
     }
 
-    if (strcmp(resource, "/data.json") == 0)
-    {
-        return NX_WEB_HTTP_CALLBACK_COMPLETED;
-    }
-
     if (memcmp(resource, "/LED", 4) == 0)
     {
     	if (resource[4] == '1')
     	{
     		// button LED1 pressed
+    		queue_push(LED1_ON);
     	}
 
     	if (resource[4] == '2')
     	{
     		// button LED2 pressed
+    		queue_push(LED2_ON);
     	}
 
     	if (resource[4] == '3')
 		{
     		// button LED3 pressed
+    		queue_push(LED3_ON);
 		}
 
     	return NX_SUCCESS;
     }
+	if (memcmp(resource, "/MOTOR_STATUS", 13) == 0){
+		NX_PACKET* response_packet;
+
+        if (nx_web_http_server_response_packet_allocate(server_ptr, &response_packet, NX_NO_WAIT) != NX_SUCCESS){
+			// No packet available - drop this sample
+			return NX_WEB_HTTP_CALLBACK_COMPLETED;
+        }
+		/* prepare msg */
+		char msg[32];
+		uint32_t motor_value = get_global_motor_position();
+		int msg_len = snprintf(msg, sizeof(msg), "%lu", (unsigned long)motor_value);
+		if (msg_len < 0) msg_len = 0;
+
+        /* prepare header */
+        char header[256];
+        int header_len = snprintf(
+				header,
+				sizeof(header),
+        		"HTTP/1.1 200 OK\r\n"
+        		"Content-Type: text/plain\r\n"
+       			"Content-Length: %lu\r\n"
+        		"Connection: close\r\n"
+        		"\r\n",
+        		(uint32_t)strlen(msg));
+
+        if (nx_packet_data_append(response_packet, header, header_len, server_ptr->nx_web_http_server_packet_pool_ptr, NX_NO_WAIT) != NX_SUCCESS){
+        	nx_packet_release(response_packet);
+        	printf("Header append error");
+        	return NX_WEB_HTTP_CALLBACK_COMPLETED;;
+        }
+        if (nx_packet_data_append(response_packet, msg, msg_len, server_ptr->nx_web_http_server_packet_pool_ptr, NX_NO_WAIT) != NX_SUCCESS){
+			nx_packet_release(response_packet);
+			printf("Body append error");
+			return NX_WEB_HTTP_CALLBACK_COMPLETED;;
+		}
+
+        nx_web_http_server_callback_packet_send(server_ptr, response_packet);
+
+        return NX_SUCCESS;
+	}
 
     return NX_SUCCESS;
 }

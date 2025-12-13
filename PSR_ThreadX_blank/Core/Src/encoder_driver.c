@@ -12,6 +12,9 @@
 
 TX_MUTEX encoder_mutex;
 TX_MUTEX motor_mutex;
+TX_MUTEX pos_mutex;
+
+uint32_t global_position = 0;
 
 UINT encoder_driver_initialize()
 {
@@ -43,6 +46,30 @@ UINT motor_driver_initialize()
 	UINT ret;
 	ret = tx_mutex_create(&motor_mutex, "Motor Mutex", TX_NO_INHERIT);
 	return ret;
+}
+
+UINT global_position_initialize()
+{
+	UINT ret;
+	ret = tx_mutex_create(&pos_mutex, "Position Mutex", TX_NO_INHERIT);
+	set_global_motor_position(0);
+	return ret;
+}
+
+VOID set_global_motor_position(uint32_t position)
+{
+	tx_mutex_get(&pos_mutex, TX_WAIT_FOREVER);
+	global_position = position;
+	tx_mutex_put(&pos_mutex);
+}
+
+uint32_t get_global_motor_position()
+{
+	uint32_t position;
+	tx_mutex_get(&pos_mutex, TX_WAIT_FOREVER);
+	position = global_position;
+	tx_mutex_put(&pos_mutex);
+	return position;
 }
 
 UINT motor_driver_input_left(uint32_t value)
@@ -99,6 +126,7 @@ VOID motor_driver_controller(uint32_t target)
 			motor_driver_input_left(P_update(l_dist));
 		}
 	}
+	set_global_motor_position(pos);
 }
 
  

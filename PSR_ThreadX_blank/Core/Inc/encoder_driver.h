@@ -20,4 +20,8 @@ UINT motor_driver_input_left(uint32_t value);
 UINT motor_driver_input_right(uint32_t value);
 VOID motor_driver_controller(uint32_t target);
 
+uint32_t get_global_motor_position();
+VOID set_global_motor_position(uint32_t position);
+UINT global_position_initialize();
+
 #endif /* INC_ENCODER_DRIVER_H_ */
