@@ -61,8 +61,9 @@
         /* --- Poll + motor graph (last 1 minute) --- */
 
         // Configuration
-        const POLL_INTERVAL_MS = 200; // frequent requests for smooth graph
-        const WINDOW_MS = 60 * 1000; // show last 60 seconds
+        const WINDOW_SEC = 20; // seconds of data to show
+        const POLL_INTERVAL_MS = 20; // frequent requests for smooth graph
+        const WINDOW_MS = WINDOW_SEC * 1000; // milliseconds of data to keep
 
         // Sample buffer: array of objects {t: timestamp_ms, v: numericValue}
         let motorSamples = [];
@@ -136,7 +137,6 @@
             // filter valid samples
             const samples = motorSamples.filter(s => s.t >= cutoff);
             if(samples.length === 0) {
-                // No point to draw, show "No data"
                 ctx.fillStyle = '#666';
                 ctx.font = '12px sans-serif';
                 ctx.fillText('No data', 10, 20);
@@ -144,21 +144,9 @@
                 return;
             }
 
-            // Y axis min/max
-            let minV = samples[0].v, maxV = samples[0].v;
-            for(const s of samples) {
-                if(s.v < minV) minV = s.v;
-                if(s.v > maxV) maxV = s.v;
-            }
-            // padding
-            if(minV === maxV) {
-                minV -= 1;
-                maxV += 1;
-            } else {
-                const pad = 0.05 * (maxV - minV);
-                minV -= pad;
-                maxV += pad;
-            }
+            // Fixed Y axis from 0 to 500
+            const minV = 0;
+            const maxV = 500;
 
             // plot grid lines
             ctx.strokeStyle = '#eee';
@@ -171,28 +159,56 @@
             }
             ctx.stroke();
 
-            // plot line chart
+            // plot line chart as individual colored segments (so color only the segments that rise/fall)
             ctx.lineWidth = 2;
-            ctx.strokeStyle = '#0077cc';
-            ctx.beginPath();
+            const startY = mapY(minV, minV, maxV, h, 8);
+            // previous point starts at left-bottom corner (value 0)
+            let prevX = 0;
+            let prevY = startY;
+            let prevV = minV;
+
             for(let i = 0; i < samples.length; i++) {
                 const s = samples[i];
                 const x = w - ((now - s.t) / WINDOW_MS) * w;
                 const y = mapY(s.v, minV, maxV, h, 8);
-                if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
+                const trend = s.v - prevV;
 
-            // plot last point
+                // choose color per segment
+                if(trend > 0) ctx.strokeStyle = '#00aa00'; // rising
+                else if(trend < 0) ctx.strokeStyle = '#cc0000'; // falling
+                else ctx.strokeStyle = '#0077cc'; // flat
+
+                // draw this single segment
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+
+                prevX = x;
+                prevY = y;
+                prevV = s.v;
+            }
+
+            // draw small markers for all samples
+            ctx.fillStyle = 'rgba(0,0,0,0.27)';
+            for(const s of samples) {
+                const x = w - ((now - s.t) / WINDOW_MS) * w;
+                const y = mapY(s.v, minV, maxV, h, 8);
+                ctx.beginPath();
+                ctx.arc(x, y, 1, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            // plot last point (highlight)
             const last = samples[samples.length - 1];
             const lx = w - ((now - last.t) / WINDOW_MS) * w;
             const ly = mapY(last.v, minV, maxV, h, 8);
-            ctx.fillStyle = '#cc3300';
+            ctx.fillStyle = '#ec5bf3';
             ctx.beginPath();
-            ctx.arc(lx, ly, 3, 0, Math.PI*2);
+            ctx.arc(lx, ly, 5, 0, Math.PI*2);
             ctx.fill();
 
-            // Y axis: min/max values
+            // Y axis: fixed min/max values
             ctx.fillStyle = '#333';
             ctx.font = '11px sans-serif';
             ctx.fillText(maxV.toFixed(2), 6, 12);
@@ -203,9 +219,6 @@
             ctx.font = '11px sans-serif';
             ctx.textAlign = 'right';
             ctx.fillText('Now', w - 6, h - 4);
-            ctx.textAlign = 'left';
-            ctx.fillText('-60s', 6, h - 4);
-            ctx.textAlign = 'start';
 
             requestAnimationFrame(drawChartFrame);
         }

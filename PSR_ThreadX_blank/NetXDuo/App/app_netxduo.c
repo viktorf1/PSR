@@ -455,11 +455,14 @@ UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr,
         		"\r\n",
         		(uint32_t)strlen(msg));
 
+        /* append header */
         if (nx_packet_data_append(response_packet, header, header_len, server_ptr->nx_web_http_server_packet_pool_ptr, NX_NO_WAIT) != NX_SUCCESS){
         	nx_packet_release(response_packet);
         	printf("Header append error");
         	return NX_WEB_HTTP_CALLBACK_COMPLETED;;
         }
+
+        /* append body */
         if (nx_packet_data_append(response_packet, msg, msg_len, server_ptr->nx_web_http_server_packet_pool_ptr, NX_NO_WAIT) != NX_SUCCESS){
 			nx_packet_release(response_packet);
 			printf("Body append error");
