@@ -54,7 +54,7 @@ UINT global_position_initialize()
 {
 	UINT ret;
 	ret = tx_mutex_create(&pos_mutex, "Position Mutex", TX_NO_INHERIT);
-	set_global_motor_position(0);
+	set_global_motor_position(0, 0);
 	return ret;
 }
 
