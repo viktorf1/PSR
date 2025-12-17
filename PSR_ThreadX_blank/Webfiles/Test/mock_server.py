@@ -8,16 +8,19 @@ from http import HTTPStatus
 ITERATION_THRESHOLD = 60
 class Handler(http.server.SimpleHTTPRequestHandler):
     motor_value = 0
+    last_value = 0
     up_trend = True
     it = 0
     def do_GET(self):
         if self.path.startswith('/MOTOR_STATUS'):
             # produce a testable numeric value (incremental with some noise)
+            last_value = Handler.motor_value
             Handler.motor_value = Handler.motor_value + random.choice([0,0,10,1]) if Handler.up_trend else Handler.motor_value - random.choice([0,0,10,1])
             value = Handler.motor_value + random.choice([0,0,3,-3])  # small jitter
             Handler.up_trend = Handler.it < ITERATION_THRESHOLD/2 if value > 0 else True
-            value = max(0, value) % 500
-            text = str(value)
+            value = int(max(0, value) % 500)
+            pwm = (value - last_value) / 2
+            text = str(value) + ' ' + str(pwm)
             body = text.encode('utf-8')
             self.send_response(HTTPStatus.OK)
             self.send_header('Content-Type', 'text/plain; charset=utf-8')

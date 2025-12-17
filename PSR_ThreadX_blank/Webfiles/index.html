@@ -62,7 +62,7 @@
 
         // Configuration
         const WINDOW_SEC = 20; // seconds of data to show
-        const POLL_INTERVAL_MS = 20; // frequent requests for smooth graph
+        const POLL_INTERVAL_MS = 50; // frequent requests for smooth graph
         const WINDOW_MS = WINDOW_SEC * 1000; // milliseconds of data to keep
 
         // Sample buffer: array of objects {t: timestamp_ms, v: numericValue}
@@ -89,12 +89,42 @@
             var r = new AJAX('MOTOR_STATUS', function(response){
                 const ts = Date.now();
                 // try to extract a number
-                const v = parseFloat(response);
-                if(!isNaN(v)) addMotorSample(v, ts);
+                const parts = response.trim().split(/\s+/);
+                if (parts.length < 2) return;
+
+                const motor_pos = parseInt(parts[0], 10);   // uint32_t
+                const pwm_val  = parseFloat(parts[1]);   // int
+
+                if(!isNaN(motor_pos)) addMotorSample(motor_pos, ts);
+                var pwm_bar = '';
+                if(!isNaN(pwm_val)) pwm_bar = makeBarGraph(pwm_val, -10, 10, 20);
                 const el = document.getElementById('MOTOR_STATUS');
-                if(el) el.textContent = response;
+                el.textContent = `Position: ${motor_pos}`;
+                const el2 = document.getElementById('PWM_STATUS');
+                el2.textContent = `PWM: [${pwm_bar}] ${pwm_val.toFixed(2)}`;
             });
             r.doGet();
+        }
+
+        function makeBarGraph(value, min, max, width) {
+            // clamp
+            if (value < min) value = min;
+            if (value > max) value = max;
+
+            const range = max - min;
+            const pos = Math.round(((value - min) / range) * width);
+            const half = Math.floor(width / 2);
+            let bar = '';
+            for (let i = 0; i < width; i++) {
+                if (i === half) {
+                    bar += '|'; // zero marker
+                } else if((i > half && i <= pos) || (i < half && i >= pos)) {
+                    bar += '=';
+                } else {
+                    bar += ' . ';
+                }
+            }
+            return bar;
         }
 
         // Canvas
@@ -126,6 +156,7 @@
             if(!canvas || !ctx) return;
             const w = canvas.clientWidth;
             const h = canvas.clientHeight;
+
             // background
             ctx.clearRect(0, 0, w, h);
             ctx.fillStyle = '#fff';
@@ -139,7 +170,7 @@
             if(samples.length === 0) {
                 ctx.fillStyle = '#666';
                 ctx.font = '12px sans-serif';
-                ctx.fillText('No data', 10, 20);
+                ctx.fillText('No data', w/2, h/2);
                 requestAnimationFrame(drawChartFrame);
                 return;
             }
@@ -162,23 +193,22 @@
             // plot line chart as individual colored segments (so color only the segments that rise/fall)
             ctx.lineWidth = 2;
             const startY = mapY(minV, minV, maxV, h, 8);
-            // previous point starts at left-bottom corner (value 0)
-            let prevX = 0;
-            let prevY = startY;
-            let prevV = minV;
+            const first = samples[0];
+            let prevX = w - ((now - first.t) / WINDOW_MS) * w;
+            let prevY = mapY(first.v, minV, maxV, h, 8);
+            let prevV = first.v;
 
-            for(let i = 0; i < samples.length; i++) {
+            // start loop from second sample
+            for (let i = 1; i < samples.length; i++) {
                 const s = samples[i];
                 const x = w - ((now - s.t) / WINDOW_MS) * w;
                 const y = mapY(s.v, minV, maxV, h, 8);
                 const trend = s.v - prevV;
 
-                // choose color per segment
-                if(trend > 0) ctx.strokeStyle = '#00aa00'; // rising
-                else if(trend < 0) ctx.strokeStyle = '#cc0000'; // falling
-                else ctx.strokeStyle = '#0077cc'; // flat
+                if (trend > 0) ctx.strokeStyle = '#00aa00';
+                else if (trend < 0) ctx.strokeStyle = '#cc0000';
+                else ctx.strokeStyle = '#0077cc';
 
-                // draw this single segment
                 ctx.beginPath();
                 ctx.moveTo(prevX, prevY);
                 ctx.lineTo(x, y);
@@ -298,6 +328,7 @@
                     <!-- Motor status and chart -->
                     <h2 class="content-subhead">Motor status</h2>
                     <div id="MOTOR_STATUS">unknown</div>
+                    <div id="PWM_STATUS">unknown</div>
                     <div style="margin-top:8px;">
                         <canvas id="motorChart" style="width:100%;max-width:800px;height:200px;border:1px solid #ddd;background:#fff;"></canvas>
                     </div>

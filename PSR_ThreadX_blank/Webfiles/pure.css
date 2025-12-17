@@ -85,7 +85,7 @@ since IE8 won't execute CSS that contains a CSS3 selector.
 .pure-form input[type="radio"]:focus,
 .pure-form input[type="checkbox"]:focus {
     outline: thin solid #129FEA;
-    outline: 1px auto #129FEA;
+    //outline: 1px auto #129FEA;
 }
 .pure-form .pure-checkbox,
 .pure-form .pure-radio {

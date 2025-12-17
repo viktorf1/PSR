@@ -6,10 +6,8 @@ Binaries/*
 *.launch
 *.md
 *.ld
-Includes/*
-Core/*
-Drivers/*
-FileX/*
-Middlewares/*
-Debug/*
-Webfiles/*
+.project
+.settings/*
+PSR_ThreadX_blank/.DS_Store
+.DS_Store
+

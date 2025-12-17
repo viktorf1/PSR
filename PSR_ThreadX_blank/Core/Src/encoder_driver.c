@@ -15,6 +15,9 @@ TX_MUTEX motor_mutex;
 TX_MUTEX pos_mutex;
 
 uint32_t global_position = 0;
+uint32_t last_position = 0;
+float 	global_pwm_value = 0;
+
 
 UINT encoder_driver_initialize()
 {
@@ -59,7 +62,9 @@ UINT global_position_initialize()
 VOID set_global_motor_position(uint32_t position)
 {
 	tx_mutex_get(&pos_mutex, TX_WAIT_FOREVER);
+	last_position = global_position;
 	global_position = position;
+	global_pwm_value = ((position - last_position) % AROUND) / 2; // simple derivative
 	tx_mutex_put(&pos_mutex);
 }
 
