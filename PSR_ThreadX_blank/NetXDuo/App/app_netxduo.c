@@ -441,12 +441,12 @@ UINT http_request_notify(NX_WEB_HTTP_SERVER *server_ptr,
 		/* prepare msg */
 		char msg[32];
 		uint32_t motor_value = get_global_motor_position();
-		int msg_len = snprintf(msg, sizeof(msg), "%lu %.2f", (unsigned long)motor_value, global_pwm_value);
+		int msg_len = snprintf(msg, sizeof(msg), "%lu %d", (unsigned long)motor_value, global_pwm_value);
 		if (msg_len < 0) msg_len = 0;
 
         /* prepare header */
         char header[256];
-        int header_len = snprintf(p
+        int header_len = snprintf(
 				header,
 				sizeof(header),
         		"HTTP/1.1 200 OK\r\n"
