@@ -15,8 +15,7 @@ TX_MUTEX motor_mutex;
 TX_MUTEX pos_mutex;
 
 uint32_t global_position = 0;
-uint32_t last_position = 0;
-float 	global_pwm_value = 0;
+int 	global_pwm_value = 0;
 
 
 UINT encoder_driver_initialize()
@@ -59,12 +58,11 @@ UINT global_position_initialize()
 	return ret;
 }
 
-VOID set_global_motor_position(uint32_t position)
+VOID set_global_motor_position(uint32_t position, int pwr)
 {
 	tx_mutex_get(&pos_mutex, TX_WAIT_FOREVER);
-	last_position = global_position;
 	global_position = position;
-	global_pwm_value = ((position - last_position) % AROUND) / 2; // simple derivative
+	global_pwm_value = pwr;
 	tx_mutex_put(&pos_mutex);
 }
 
@@ -123,15 +121,18 @@ VOID motor_driver_controller(uint32_t target)
 	uint32_t l_dist = min(target - pos, target + AROUND - pos);
 
 	printf("Motor: POS:%ld TARGET:%ld RD:%ld LD:%ld\n", pos, target, r_dist, l_dist);
+	int pwr = 0;
 	if(pos != target) {
 		if(r_dist < l_dist) {
-			motor_driver_input_right(P_update(r_dist));
+			pwr = P_update(r_dist);
+			motor_driver_input_right(pwr);
 		}
 		else {
-			motor_driver_input_left(P_update(l_dist));
+			pwr = -P_update(l_dist);
+			motor_driver_input_left(-pwr);
 		}
 	}
-	set_global_motor_position(pos);
+	set_global_motor_position(pos, pwr);
 }
 
  
